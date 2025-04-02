@@ -132,6 +132,13 @@ impl Column {
             primary_key: false,
         }
     }
+    pub fn safe_name(&self) -> &str {
+        if self.name.starts_with("r#") {
+            return &self.name[2..];
+        }
+
+        &self.name
+    }
     pub fn set_auto_increment(&mut self) {
         self.auto_increment = true;
     }

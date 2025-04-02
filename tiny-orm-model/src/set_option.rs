@@ -33,6 +33,15 @@ impl<T> From<T> for SetOption<T> {
     }
 }
 
+impl<T> From<Option<T>> for SetOption<T> {
+    fn from(value: Option<T>) -> Self {
+        match value {
+            Some(t) => SetOption::Set(t),
+            None => SetOption::NotSet
+        }
+    }
+}
+
 /// Implement `From` for `Result` to allow for easy conversion from a `SetOption` to a `Result`.
 /// This is useful when you want to handle the `NotSet` variant as an error case.
 ///

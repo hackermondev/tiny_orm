@@ -215,14 +215,14 @@ pub fn create_fn(attr: &Attr) -> proc_macro2::TokenStream {
         }
         let str_quote = if column.use_set_options() {
             let column_ident = &column.ident;
-            let column_name = &column.name;
+            let column_name = column.safe_name();
             quote! {
                 if self.#column_ident.is_set() {
                     fields_str.push(#column_name);
                 }
             }
         } else {
-            let column_name = &column.name;
+            let column_name = column.safe_name();
             quote! {
                 fields_str.push(#column_name);
             }
@@ -297,7 +297,7 @@ pub fn update_fn(attr: &Attr) -> proc_macro2::TokenStream {
             continue;
         }
         let column_ident = &column.ident;
-        let column_name = &column.name;
+        let column_name = column.safe_name();
 
         let quote = quote! {
             if !first {
