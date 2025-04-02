@@ -199,8 +199,7 @@ pub fn create_fn(attr: &Attr) -> proc_macro2::TokenStream {
     If an auto increment column is used, set a dummy value and it will be ignored."#;
     let return_type = match (&db_type, attr.primary_key.clone()) {
         (&DbType::MySQL, None) => panic!("{mysql_specific_error}"),
-        (_, None) => ReturnType::EntireRow(attr.parsed_struct.return_object.clone()),
-        (_, Some(primary_key)) => ReturnType::PrimaryKey(primary_key),
+        _ => ReturnType::EntireRow(attr.parsed_struct.return_object.clone()),
     };
 
     let function_output = return_type.clone().function_output();
