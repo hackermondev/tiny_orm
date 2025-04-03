@@ -83,6 +83,7 @@ pub enum Operation {
     Get,
     List,
     Create,
+    CreateBulk,
     Update,
     Delete,
 }
@@ -93,6 +94,7 @@ impl Operation {
             Operation::Get,
             Operation::List,
             Operation::Create,
+            Operation::CreateBulk,
             Operation::Update,
             Operation::Delete,
         ]
@@ -107,6 +109,7 @@ impl FromStr for Operation {
             "get" => Ok(Operation::Get),
             "list" => Ok(Operation::List),
             "create" => Ok(Operation::Create),
+            "create_bulk" => Ok(Operation::CreateBulk),
             "update" => Ok(Operation::Update),
             "delete" => Ok(Operation::Delete),
             _ => Err(()),

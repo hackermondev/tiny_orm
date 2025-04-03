@@ -271,6 +271,99 @@ pub fn create_fn(attr: &Attr) -> proc_macro2::TokenStream {
     }
 }
 
+pub fn create_bulk_fn(attr: &Attr) -> proc_macro2::TokenStream {
+    let db_type_ident = database::db_type().to_ident();
+    let return_type = ReturnType::MultipleRows(attr.clone().parsed_struct.return_object);
+    let returning_statement = return_type.clone().returning_statement();
+    let function_output = return_type.clone().function_output();
+    let query_builder_execution = return_type.query_builder_execution();
+    let table_name = attr.parsed_struct.table_name.clone().to_string();
+
+    let mut field_str_quote = Vec::new();
+    let mut field_values_quote = Vec::new();
+
+    for column in attr.columns.iter() {
+        if column.auto_increment {
+            continue;
+        }
+        let str_quote = if column.use_set_options() {
+            let column_ident = &column.ident;
+            let column_name = column.safe_name();
+            quote! {
+                if self.#column_ident.is_set() {
+                    fields.push(#column_name);
+                }
+            }
+        } else {
+            let column_name = column.safe_name();
+            quote! {
+                fields.push(#column_name);
+            }
+        };
+        field_str_quote.push(str_quote);
+
+        let value_quote = if column.use_set_options() {
+            let column_ident = &column.ident;
+            quote! {
+                if let SetOption::Set(v) = attr.#column_ident {
+                    separated.push_bind(v);
+                }
+            }
+        } else {
+            let column_ident = &column.ident;
+            quote! {
+                separated.push_bind(attr.#column_ident);
+            }
+        };
+        field_values_quote.push(value_quote);
+    }
+
+    quote! {
+       pub fn fields(&self) -> Vec<&str> {
+            let mut fields = Vec::new();
+            #(#field_str_quote)*
+
+            fields
+        }
+
+        pub async fn create_bulk<'e, E>(structs: Vec<Self>, db: E) -> #function_output
+        where
+            E: ::sqlx::#db_type_ident<'e>
+        {
+            let mut qb = ::sqlx::QueryBuilder::new("INSERT INTO ");
+            qb.push(#table_name);
+
+            let mut fields = structs.iter().map(|s| s.fields()).collect::<Vec<Vec<&str>>>();
+            fields.dedup();
+
+            if fields.len() > 1 {
+                panic!("structs must have same fields")
+            }
+
+            let fields_str = fields.get(0).unwrap();
+            
+            qb.push(" (");
+            qb.push(fields_str.join(", "));
+            qb.push(") VALUES ");
+
+            for (i, attr) in structs.into_iter().enumerate() {
+                if i != 0 {
+                    qb.push(", ");
+                }
+
+                qb.push("(");
+                let mut separated = qb.separated(", ");
+                #(#field_values_quote)*
+                separated.push_unseparated(")");
+            }
+            
+            #returning_statement
+
+            #query_builder_execution
+        }
+    }
+}
+
 pub fn update_fn(attr: &Attr) -> proc_macro2::TokenStream {
     let db_type_ident = database::db_type().to_ident();
 
@@ -360,10 +453,6 @@ pub fn delete_fn(attr: &Attr) -> proc_macro2::TokenStream {
     let function_output = return_type.clone().function_output();
     let query_builder_execution = return_type.query_builder_execution();
     let table_name = attr.parsed_struct.table_name.clone().to_string();
-    let (pk_name, pk_ident) = match attr.primary_key {
-        Some(ref pk) => (&pk.name, &pk.ident),
-        None => panic!("No primary key field found"),
-    };
     let delete_statement = match (attr.soft_deletion, database::db_type()) {
         (true, DbType::Postgres) => quote! {
             let mut qb = ::sqlx::QueryBuilder::new("UPDATE ");
@@ -393,17 +482,54 @@ pub fn delete_fn(attr: &Attr) -> proc_macro2::TokenStream {
             qb.push(" WHERE ");
         },
     };
+    let mut selector_statement = Vec::new();
+    for column in attr.columns.iter() {
+        let selector = if column.use_set_options() {
+            let column_ident = &column.ident;
+            let column_name = column.safe_name();
+            quote! {
+                if self.#column_ident.is_set() {
+                    let value = self.#column_ident.inner().unwrap();
+                    if i > 0 {
+                        qb.push(" AND ");
+                    }
+
+                    let column_name = #column_name;
+                    qb.push(format!("{column_name} = "));
+                    qb.push_bind(value);
+                    i += 1;
+                }
+            }
+        } else {
+            let column_name = column.safe_name();
+            let column_ident = &column.ident;
+
+            quote! {
+                let value = self.#column_ident.inner();
+                if i > 0 {
+                    qb.push(" AND ");
+                }
+
+                let column_name = #column_name;
+                qb.push(format!("{column_name} = "));
+                qb.push_bind(value);
+                i += 1;
+            }
+        };
+
+        selector_statement.push(selector);
+    }
+
     quote! {
-        pub async fn delete<'e, E>(&self, db: E) -> #function_output
+        pub async fn delete<'e, E>(self, db: E) -> #function_output
         where
             E: ::sqlx::#db_type_ident<'e>
         {
             #delete_statement
             #where_statement
-            qb.push(#pk_name);
-            qb.push(" = ");
-            qb.push_bind(&self.#pk_ident);
 
+            let mut i = 0;
+            #(#selector_statement)*
             #query_builder_execution
         }
     }

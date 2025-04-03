@@ -49,6 +49,12 @@ fn generate_impl(attr: &attr::Attr) -> proc_macro2::TokenStream {
         quote! {}
     };
 
+    let create_bulk_impl = if attr.operations.contains(&Operation::CreateBulk) {
+        quotes::create_bulk_fn(attr)
+    } else {
+        quote! {}
+    };
+
     let update_impl = if attr.operations.contains(&Operation::Update) {
         quotes::update_fn(attr)
     } else {
@@ -67,6 +73,7 @@ fn generate_impl(attr: &attr::Attr) -> proc_macro2::TokenStream {
             #get_impl
             #list_impl
             #create_impl
+            #create_bulk_impl
             #update_impl
             #delete_impl
         }
