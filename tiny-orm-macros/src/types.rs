@@ -17,7 +17,7 @@ pub enum StructType {
 impl StructType {
     pub fn default_operation(&self) -> Operations {
         match self {
-            StructType::Create => vec![Operation::Create],
+            StructType::Create => vec![Operation::Create, Operation::CreateBulk],
             StructType::Update => vec![Operation::Update],
             StructType::Generic => vec![Operation::Get, Operation::List, Operation::Delete],
         }
@@ -81,6 +81,7 @@ impl ParsedStruct {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Operation {
     Get,
+    Query,
     List,
     Create,
     CreateBulk,
@@ -92,6 +93,7 @@ impl Operation {
     pub fn all() -> Vec<Operation> {
         vec![
             Operation::Get,
+            Operation::Query,
             Operation::List,
             Operation::Create,
             Operation::CreateBulk,
@@ -107,6 +109,7 @@ impl FromStr for Operation {
     fn from_str(input: &str) -> Result<Operation, Self::Err> {
         match input {
             "get" => Ok(Operation::Get),
+            "query" => Ok(Operation::Query),
             "list" => Ok(Operation::List),
             "create" => Ok(Operation::Create),
             "create_bulk" => Ok(Operation::CreateBulk),

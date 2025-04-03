@@ -37,6 +37,12 @@ fn generate_impl(attr: &attr::Attr) -> proc_macro2::TokenStream {
         quote! {}
     };
 
+    let query_impl = if attr.operations.contains(&Operation::Query) {
+        quotes::query_fn(attr)
+    } else {
+        quote! {}
+    };
+
     let list_impl = if attr.operations.contains(&Operation::List) {
         quotes::list_all_fn(attr)
     } else {
@@ -71,6 +77,7 @@ fn generate_impl(attr: &attr::Attr) -> proc_macro2::TokenStream {
         impl #struct_name {
             #table_name_fn
             #get_impl
+            #query_impl
             #list_impl
             #create_impl
             #create_bulk_impl
