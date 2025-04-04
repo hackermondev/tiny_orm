@@ -15,9 +15,11 @@ postgres = ["sqlx/postgres"]
 mysql = ["sqlx/mysql"]
 "sqlx-0.7" = []
 set-option = []
+serde = ["dep:serde"]
 
 [dependencies]
 sqlx = { version = ">=0.7, <1.0", default-features = false }
+serde = { version = "*", default-features = false, optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4.4"

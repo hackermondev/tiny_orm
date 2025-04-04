@@ -1,9 +1,9 @@
 use crate::TinyOrmError;
 
-/// tiny_orm::SetOption is an enum that behave similarly to `Option` in the sense that there are only two variants.
-/// The goal is to easily differentiate between an Option type and a SetOption type.
-/// So that it is possible to have a struct like the following
-/// ```rust
+/// tiny_orm::SetOption is an enum that behave similarly to `Option` in the
+/// sense that there are only two variants. The goal is to easily differentiate
+/// between an Option type and a SetOption type. So that it is possible to have
+/// a struct like the following ```rust
 /// # use tiny_orm_model::SetOption;
 ///
 /// struct Todo {
@@ -12,8 +12,9 @@ use crate::TinyOrmError;
 /// }
 /// ```
 ///
-/// When the variant will be `SetOption::NotSet`, then tiny ORM will automatically skip the field during "write" operations
-/// like `create()` or `update()`.
+/// When the variant will be `SetOption::NotSet`, then tiny ORM will
+/// automatically skip the field during "write" operations like `create()` or
+/// `update()`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SetOption<T> {
     Set(T),
@@ -21,29 +22,47 @@ pub enum SetOption<T> {
     NotSet,
 }
 
-/// Implement `From` for `SetOption` to allow for easy conversion from a value to a `SetOption`.
-/// ```rust
+/// Implement `From` for `SetOption` to allow for easy conversion from a value
+/// to a `SetOption`. ```rust
 /// # use tiny_orm_model::SetOption;
 /// let set_option: SetOption<i32> = 1.into();
 /// assert_eq!(set_option, SetOption::Set(1));
 /// ```
 impl<T> From<T> for SetOption<T> {
-    fn from(value: T) -> Self {
-        SetOption::Set(value)
-    }
+    fn from(value: T) -> Self { SetOption::Set(value) }
 }
 
 impl<T> From<Option<T>> for SetOption<T> {
     fn from(value: Option<T>) -> Self {
         match value {
             Some(t) => SetOption::Set(t),
-            None => SetOption::NotSet
+            None => SetOption::NotSet,
         }
     }
 }
 
-/// Implement `From` for `Result` to allow for easy conversion from a `SetOption` to a `Result`.
-/// This is useful when you want to handle the `NotSet` variant as an error case.
+#[cfg(feature = "serde")]
+impl<T: serde::Serialize> serde::Serialize for SetOption<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer, {
+        let inner = self.value_ref().ok();
+        inner.serialize(serializer)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for SetOption<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>, {
+        Option::deserialize(deserializer).map(|o| o.into())
+    }
+}
+
+/// Implement `From` for `Result` to allow for easy conversion from a
+/// `SetOption` to a `Result`. This is useful when you want to handle the
+/// `NotSet` variant as an error case.
 ///
 /// # Examples
 /// ```rust
@@ -69,7 +88,8 @@ impl<T> From<SetOption<T>> for Result<T, &'static str> {
 
 impl<T> SetOption<T> {
     /// `inner()` is a method to get the inner value as an Option type.
-    /// This return an `Option<T>` type where `Some<T>` corresponds to the `Set` variant,
+    /// This return an `Option<T>` type where `Some<T>` corresponds to the `Set`
+    /// variant,
     ///
     /// # Examples
     /// ```rust
@@ -93,7 +113,8 @@ impl<T> SetOption<T> {
     }
 
     /// `value()` is a method to get the inner value as an Result type.
-    /// This return an `Result<T, TinyOrmError>` type where `Ok<T>` corresponds to the `Set` variant,
+    /// This return an `Result<T, TinyOrmError>` type where `Ok<T>` corresponds
+    /// to the `Set` variant,
     ///
     /// # Examples
     /// ```rust
@@ -117,7 +138,8 @@ impl<T> SetOption<T> {
     }
 
     /// `value_ref()` is a method to get the inner value as an Result type.
-    /// This return an `Result<&T, TinyOrmError>` type where `Ok<&T>` corresponds to the `Set` variant,
+    /// This return an `Result<&T, TinyOrmError>` type where `Ok<&T>`
+    /// corresponds to the `Set` variant,
     ///
     /// # Examples
     /// ```rust
@@ -264,13 +286,9 @@ where
     DB: Database,
     T: Type<DB>,
 {
-    fn type_info() -> <DB as Database>::TypeInfo {
-        T::type_info()
-    }
+    fn type_info() -> <DB as Database>::TypeInfo { T::type_info() }
 
-    fn compatible(ty: &<DB as Database>::TypeInfo) -> bool {
-        T::compatible(ty)
-    }
+    fn compatible(ty: &<DB as Database>::TypeInfo) -> bool { T::compatible(ty) }
 }
 
 /// Implements database encoding for `SetOption<T>`.
@@ -311,7 +329,10 @@ where
 /// assert_eq!(record.value, SetOption::Set(42));
 ///
 /// // Test inserting a NotSet value
-/// sqlx::query("DELETE FROM test").execute(&pool).await.unwrap();
+/// sqlx::query("DELETE FROM test")
+///     .execute(&pool)
+///     .await
+///     .unwrap();
 /// let not_set_value: SetOption<i32> = SetOption::NotSet;
 /// sqlx::query("INSERT INTO test (value) VALUES (?)")
 ///     .bind(not_set_value)
@@ -339,8 +360,7 @@ where
     }
 
     fn encode_by_ref(
-        &self,
-        buf: &mut <DB as Database>::ArgumentBuffer<'q>,
+        &self, buf: &mut <DB as Database>::ArgumentBuffer<'q>,
     ) -> Result<IsNull, BoxDynError> {
         match self {
             SetOption::Set(value) => value.encode_by_ref(buf),
@@ -369,28 +389,26 @@ where
 // ##########################
 // ##########################
 #[cfg(feature = "sqlx-0.7")]
-use sqlx::{encode::IsNull, error::BoxDynError, Database, ValueRef};
+use sqlx::{Database, ValueRef, encode::IsNull, error::BoxDynError};
 #[cfg(feature = "sqlx-0.7")]
 impl<DB: Database, T> sqlx::Type<DB> for SetOption<T>
 where
     T: sqlx::Type<DB>,
 {
-    fn type_info() -> <DB as Database>::TypeInfo {
-        T::type_info()
-    }
+    fn type_info() -> <DB as Database>::TypeInfo { T::type_info() }
 }
 
 #[cfg(all(feature = "sqlx-0.7", feature = "mysql"))]
-use sqlx::{mysql::MySqlValueRef, MySql};
+use sqlx::{MySql, mysql::MySqlValueRef};
 #[cfg(all(feature = "sqlx-0.7", feature = "postgres"))]
 use sqlx::{
-    postgres::{PgArgumentBuffer, PgValueRef},
     Postgres,
+    postgres::{PgArgumentBuffer, PgValueRef},
 };
 #[cfg(all(feature = "sqlx-0.7", feature = "sqlite"))]
 use sqlx::{
-    sqlite::{SqliteArgumentValue, SqliteValueRef},
     Sqlite,
+    sqlite::{SqliteArgumentValue, SqliteValueRef},
 };
 
 /// Implements database decoding for SetOption<T>.
@@ -522,7 +540,10 @@ where
 /// assert_eq!(record.value, SetOption::Set(42));
 ///
 /// // Test inserting a NotSet value
-/// sqlx::query("DELETE FROM test").execute(&pool).await.unwrap();
+/// sqlx::query("DELETE FROM test")
+///     .execute(&pool)
+///     .await
+///     .unwrap();
 /// let not_set_value: SetOption<i32> = SetOption::NotSet;
 /// sqlx::query("INSERT INTO test (value) VALUES (?)")
 ///     .bind(not_set_value)

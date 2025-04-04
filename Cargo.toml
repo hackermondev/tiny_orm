@@ -35,6 +35,7 @@ postgres = ["sqlx/postgres", "tiny-orm-macros/postgres", "tiny-orm-model/postgre
 mysql = ["sqlx/mysql", "tiny-orm-macros/mysql", "tiny-orm-model/mysql"]
 "sqlx-0.7" = ["tiny-orm-model/sqlx-0.7"]  # Backward compatibility with sqlx 0.7.*
 set-option = ["tiny-orm-model/set-option"]  # To use the SetOption struct which skips fields in the update query when they are NotSet
+serde = ["tiny-orm-model/serde"]
 
 [package.metadata.docs.rs]
 features = ["sqlite"]
