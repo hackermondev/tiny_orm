@@ -1,9 +1,11 @@
 use convert_case::{Case, Casing};
+use proc_macro2::Span;
 use quote::{format_ident, ToTokens};
 use regex::Regex;
+use syn::parse::Parse;
 use std::sync::LazyLock;
 use std::{fmt, str::FromStr};
-use syn::{Ident, Type};
+use syn::{parse_str, Ident, Path, Type};
 
 static FIND_SET_OPTION_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(?:tiny_orm\s*::\s*)*SetOption\s*<").unwrap());
@@ -157,16 +159,16 @@ impl Column {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TableName(pub String);
+pub struct TableName(pub Path);
 impl TableName {
     pub fn new(input: &str) -> Self {
-        Self(input.to_case(Case::Snake))
+        Self(parse_str::<Path>(input).unwrap())
     }
 }
 
 impl fmt::Display for TableName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{:?}", self.0)
     }
 }
 

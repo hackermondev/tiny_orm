@@ -117,7 +117,7 @@ impl ReturnType {
 }
 
 pub fn get_table_name(attr: &Attr) -> proc_macro2::TokenStream {
-    let table_name = attr.parsed_struct.table_name.0.as_str();
+    let table_name = &attr.parsed_struct.table_name.0;
     quote! {
         pub fn table_name<'a>() -> &'a str {
             #table_name
@@ -130,7 +130,7 @@ pub fn get_by_id_fn(attr: &Attr) -> proc_macro2::TokenStream {
     let return_type = ReturnType::OptionalRow(attr.clone().parsed_struct.return_object);
     let function_output = return_type.clone().function_output();
     let query_builder_execution = return_type.query_builder_execution();
-    let table_name = attr.parsed_struct.table_name.clone().to_string();
+    let table_name = &attr.parsed_struct.table_name.0;
 
     let (pk_name, pk_type) = match attr.primary_key {
         Some(ref pk) => (&pk.name, &pk._type),
@@ -167,7 +167,7 @@ pub fn query_fn(attr: &Attr) -> proc_macro2::TokenStream {
     let return_type = ReturnType::OptionalRow(attr.clone().parsed_struct.return_object);
     let function_output = return_type.clone().function_output();
     let query_builder_execution = return_type.query_builder_execution();
-    let table_name = attr.parsed_struct.table_name.clone().to_string();
+    let table_name = &attr.parsed_struct.table_name.0;
 
 
     let where_statement = match attr.soft_deletion {
@@ -238,7 +238,7 @@ pub fn list_all_fn(attr: &Attr) -> proc_macro2::TokenStream {
     let return_type = ReturnType::MultipleRows(attr.clone().parsed_struct.return_object);
     let function_output = return_type.clone().function_output();
     let query_builder_execution = return_type.query_builder_execution();
-    let table_name = attr.parsed_struct.table_name.clone().to_string();
+    let table_name = &attr.parsed_struct.table_name.0;
 
     let where_statement = match attr.soft_deletion {
         true => quote! {
@@ -263,7 +263,7 @@ pub fn list_all_fn(attr: &Attr) -> proc_macro2::TokenStream {
 pub fn create_fn(attr: &Attr) -> proc_macro2::TokenStream {
     let db_type = database::db_type();
     let db_type_ident = db_type.clone().to_ident();
-    let table_name = attr.parsed_struct.table_name.clone().to_string();
+    let table_name = &attr.parsed_struct.table_name.0;
 
     let mysql_specific_error = r#"MySQL does not support the `RETURNING *` statement
     Thus it's not possible to create a record without a known primary_key column with the `Table` macro.
@@ -348,7 +348,7 @@ pub fn create_bulk_fn(attr: &Attr) -> proc_macro2::TokenStream {
     let returning_statement = return_type.clone().returning_statement();
     let function_output = return_type.clone().function_output();
     let query_builder_execution = return_type.query_builder_execution();
-    let table_name = attr.parsed_struct.table_name.clone().to_string();
+    let table_name = &attr.parsed_struct.table_name.0;
 
     let mut field_str_quote = Vec::new();
     let mut field_values_quote = Vec::new();
@@ -449,7 +449,7 @@ pub fn update_fn(attr: &Attr) -> proc_macro2::TokenStream {
     let query_builder_execution = return_type.clone().query_builder_execution();
     let returning_statement = return_type.returning_statement();
 
-    let table_name = attr.parsed_struct.table_name.clone().to_string();
+    let table_name = &attr.parsed_struct.table_name.0;
     let (pk_name, pk_ident) = match attr.primary_key {
         Some(ref pk) => (&pk.name, &pk.ident),
         None => panic!("No primary key field found"),
@@ -523,7 +523,7 @@ pub fn delete_fn(attr: &Attr) -> proc_macro2::TokenStream {
     let return_type = ReturnType::None;
     let function_output = return_type.clone().function_output();
     let query_builder_execution = return_type.query_builder_execution();
-    let table_name = attr.parsed_struct.table_name.clone().to_string();
+    let table_name = &attr.parsed_struct.table_name.0;
     let delete_statement = match (attr.soft_deletion, database::db_type()) {
         (true, DbType::Postgres) => quote! {
             let mut qb = ::sqlx::QueryBuilder::new("UPDATE ");
@@ -560,7 +560,7 @@ pub fn delete_fn(attr: &Attr) -> proc_macro2::TokenStream {
             let column_name = column.safe_name();
             quote! {
                 if self.#column_ident.is_set() {
-                    let value = self.#column_ident.inner().unwrap();
+                    let value = self.#column_ident.value_ref().unwrap();
                     if i > 0 {
                         qb.push(" AND ");
                     }
@@ -576,7 +576,7 @@ pub fn delete_fn(attr: &Attr) -> proc_macro2::TokenStream {
             let column_ident = &column.ident;
 
             quote! {
-                let value = self.#column_ident.inner();
+                let value = &self.#column_ident;
                 if i > 0 {
                     qb.push(" AND ");
                 }
