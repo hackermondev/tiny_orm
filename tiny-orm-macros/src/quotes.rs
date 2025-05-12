@@ -164,7 +164,7 @@ pub fn get_by_id_fn(attr: &Attr) -> proc_macro2::TokenStream {
 
 pub fn query_fn(attr: &Attr) -> proc_macro2::TokenStream {
     let db_type_ident = database::db_type().to_ident();
-    let return_type = ReturnType::OptionalRow(attr.clone().parsed_struct.return_object);
+    let return_type = ReturnType::MultipleRows(attr.clone().parsed_struct.return_object);
     let function_output = return_type.clone().function_output();
     let query_builder_execution = return_type.query_builder_execution();
     let table_name = &attr.parsed_struct.table_name.0;
@@ -217,7 +217,7 @@ pub fn query_fn(attr: &Attr) -> proc_macro2::TokenStream {
     }
 
     quote! {
-        pub async fn query<'e, E>(&self, db: E) -> #function_output
+        pub async fn query<'e, E>(&self, db: E, limit: u64, offset: u64) -> #function_output
         where
             E: ::sqlx::#db_type_ident<'e>
         {
@@ -228,7 +228,8 @@ pub fn query_fn(attr: &Attr) -> proc_macro2::TokenStream {
             let mut i = 0;
             #(#selector_statement)*
 
-            #query_builder_execution
+            qb.push(format!(" LIMIT {limit} OFFSET {offset}"));
+            #query_builder_execution    
         }
     }
 }
