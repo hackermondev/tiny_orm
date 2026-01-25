@@ -1,4 +1,6 @@
 use std::{collections::HashSet, str::FromStr};
+use proc_macro2::TokenStream;
+use quote::ToTokens;
 use syn::{
     parenthesized, parse_str, punctuated::Punctuated, token::Paren, Attribute, Data, DeriveInput,
     Expr, ExprLit, Fields, Ident, Lit, Meta, Token,
@@ -45,7 +47,7 @@ impl Parser {
         let mut exclude: Option<Vec<Operation>> = None;
         let mut add: Option<Vec<Operation>> = None;
         let mut return_object: Option<Ident> = None;
-        let mut table_name: Option<String> = None;
+        let mut table_name: Option<TokenStream> = None;
         let mut soft_deletion: bool = false;
 
         for attr in attrs {
@@ -56,13 +58,8 @@ impl Parser {
                 for meta in nested {
                     match meta {
                         Meta::NameValue(name_value) if name_value.path.is_ident("table_name") => {
-                            if let Expr::Lit(ExprLit {
-                                lit: Lit::Str(lit_str),
-                                ..
-                            }) = name_value.clone().value
-                            {
-                                table_name = Some(lit_str.value().clone());
-                            };
+                            let value = name_value.value;
+                            table_name = Some(value.into_token_stream());
                         }
                         Meta::NameValue(name_value)
                             if name_value.path.is_ident("return_object") =>
@@ -803,7 +800,7 @@ mod tests {
     }
 
     mod parse {
-        use quote::format_ident;
+        use quote::{ToTokens, format_ident};
         use syn::{parse_quote, DeriveInput};
 
         use crate::attr::{Column, Operation, ParsedStruct};
@@ -860,7 +857,7 @@ mod tests {
             let result = Attr::parse(input);
             let parsed_struct = ParsedStruct::new(
                 &format_ident!("Contact"),
-                Some("specific_table".to_string()),
+                Some("specific_table".to_token_stream()),
                 Some(format_ident!("AnotherObject")),
             );
             assert_eq!(

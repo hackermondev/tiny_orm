@@ -630,7 +630,7 @@ mod tests {
     }
 
     mod simple_attr {
-        use quote::format_ident;
+        use quote::{ToTokens, format_ident};
         use syn::parse_quote;
 
         use crate::types::{Column, Operation, ParsedStruct};
@@ -645,7 +645,7 @@ mod tests {
             };
             let parsed_struct = ParsedStruct::new(
                 &format_ident!("Contact"),
-                Some("contact".to_string()),
+                Some("contact".to_token_stream()),
                 Some(format_ident!("Self")),
             );
             Attr {

@@ -1,11 +1,12 @@
 use convert_case::{Case, Casing};
-use proc_macro2::Span;
-use quote::{format_ident, ToTokens};
+use proc_macro2::{Span, TokenStream};
+use quote::{format_ident, quote, ToTokens};
 use regex::Regex;
 use syn::parse::Parse;
+use std::borrow::Cow;
 use std::sync::LazyLock;
 use std::{fmt, str::FromStr};
-use syn::{parse_str, Ident, Path, Type};
+use syn::{Ident, LitStr, Path, Type, parse_str, parse2};
 
 static FIND_SET_OPTION_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(?:tiny_orm\s*::\s*)*SetOption\s*<").unwrap());
@@ -54,15 +55,18 @@ pub struct ParsedStruct {
 impl ParsedStruct {
     pub fn new(
         struct_name: &Ident,
-        table_name: Option<String>,
+        table_name: Option<TokenStream>,
         return_object: Option<ReturnObject>,
     ) -> Self {
         let name = struct_name.to_string();
         let struct_type = StructType::from(name.as_str());
 
         let table_name = match table_name {
-            Some(value) => value,
-            None => struct_type.remove_prefix(&name),
+            Some(token) => TableName(token),
+            None => {
+                let name = struct_type.remove_prefix(&name);
+                TableName(quote! { #name })
+            },
         };
 
         let return_object = match (return_object, &struct_type) {
@@ -73,7 +77,7 @@ impl ParsedStruct {
 
         Self {
             name: struct_name.clone(),
-            table_name: TableName::new(&table_name),
+            table_name,
             struct_type,
             return_object,
         }
@@ -158,17 +162,20 @@ impl Column {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TableName(pub Path);
+#[derive(Debug, Clone)]
+pub struct TableName (pub TokenStream);
+
 impl TableName {
-    pub fn new(input: &str) -> Self {
-        Self(parse_str::<Path>(input).unwrap())
+    pub fn to_string(&self) -> String {
+        self.0.to_string()
     }
 }
 
-impl fmt::Display for TableName {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.0)
+impl Eq for TableName {}
+
+impl PartialEq for TableName {
+    fn eq(&self, other: &Self) -> bool {
+        self.to_string().eq(&other.to_string())
     }
 }
 
