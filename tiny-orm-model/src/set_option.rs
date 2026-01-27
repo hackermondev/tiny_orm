@@ -112,6 +112,32 @@ impl<T> SetOption<T> {
         }
     }
 
+    /// `take()` is a method to take the inner value as an Option type.
+    /// This return an `Option<T>` type where `Some<T>` corresponds to the `Set`
+    /// variant, and removes the value from self.
+    ///
+    /// # Examples
+    /// ```rust
+    /// # use tiny_orm_model::SetOption;
+    /// let set = SetOption::Set(1);
+    /// let inner = set.take();
+    /// assert_eq!(inner, Some(1));
+    /// ```
+    ///
+    /// ```rust
+    /// # use tiny_orm_model::SetOption;
+    /// let not_set: SetOption<i32> = SetOption::NotSet;
+    /// let inner = not_set.take();
+    /// assert_eq!(inner, None);
+    /// ```
+    pub fn take(&mut self) -> Option<T> {
+        let value = std::mem::take(self);
+        match value {
+            SetOption::NotSet => None,
+            SetOption::Set(value) => Some(value),
+        }
+    }
+
     /// `value()` is a method to get the inner value as an Result type.
     /// This return an `Result<T, TinyOrmError>` type where `Ok<T>` corresponds
     /// to the `Set` variant,
