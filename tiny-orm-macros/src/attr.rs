@@ -1,12 +1,15 @@
-use std::{collections::HashSet, str::FromStr};
 use proc_macro2::TokenStream;
 use quote::ToTokens;
+use std::{collections::HashSet, str::FromStr};
 use syn::{
     parenthesized, parse_str, punctuated::Punctuated, token::Paren, Attribute, Data, DeriveInput,
     Expr, ExprLit, Fields, Ident, Lit, Meta, Token,
 };
 
-use crate::types::{Column, Operation, Operations, ParsedStruct, PrimaryKey};
+use crate::{
+    database::DbType,
+    types::{Column, Operation, Operations, ParsedStruct, PrimaryKey},
+};
 
 const NAME_MACRO_OPERATION_ARG: &str = "tiny_orm";
 
@@ -17,12 +20,13 @@ pub struct Attr {
     pub columns: Vec<Column>,
     pub operations: Operations,
     pub soft_deletion: bool,
+    pub db_type: DbType,
 }
 
 impl Attr {
     pub fn parse(input: DeriveInput) -> Self {
         let struct_name = input.ident;
-        let (parsed_struct, operations, soft_deletion) =
+        let (parsed_struct, db_type, operations, soft_deletion) =
             Parser::parse_struct_macro_arguments(&struct_name, &input.attrs);
         let (primary_key, columns) = Parser::parse_fields_macro_arguments(input.data);
 
@@ -32,6 +36,7 @@ impl Attr {
             columns,
             operations,
             soft_deletion,
+            db_type,
         }
     }
 }
@@ -42,12 +47,13 @@ impl Parser {
     fn parse_struct_macro_arguments(
         struct_name: &Ident,
         attrs: &[Attribute],
-    ) -> (ParsedStruct, Operations, bool) {
+    ) -> (ParsedStruct, DbType, Operations, bool) {
         let mut only: Option<Vec<Operation>> = None;
         let mut exclude: Option<Vec<Operation>> = None;
         let mut add: Option<Vec<Operation>> = None;
         let mut return_object: Option<Ident> = None;
         let mut table_name: Option<TokenStream> = None;
+        let mut db_type: Option<DbType> = None;
         let mut soft_deletion: bool = false;
 
         for attr in attrs {
@@ -60,6 +66,15 @@ impl Parser {
                         Meta::NameValue(name_value) if name_value.path.is_ident("table_name") => {
                             let value = name_value.value;
                             table_name = Some(value.into_token_stream());
+                        }
+                        Meta::NameValue(name_value) if name_value.path.is_ident("db_type") => {
+                            if let Expr::Lit(ExprLit {
+                                lit: Lit::Str(lit_str),
+                                ..
+                            }) = name_value.clone().value
+                            {
+                                db_type = Some(DbType::parse(lit_str.value().as_str()));
+                            };
                         }
                         Meta::NameValue(name_value)
                             if name_value.path.is_ident("return_object") =>
@@ -156,6 +171,7 @@ impl Parser {
         }
 
         let parsed_struct = ParsedStruct::new(struct_name, table_name, return_object);
+        let db_type = db_type.unwrap_or_default();
         let operations = Parser::get_operations(
             only,
             exclude,
@@ -164,7 +180,7 @@ impl Parser {
         )
         .expect("Cannot parse the only/exclude operations properly.");
 
-        (parsed_struct, operations, soft_deletion)
+        (parsed_struct, db_type, operations, soft_deletion)
     }
 
     fn parse_fields_macro_arguments(data: Data) -> (Option<PrimaryKey>, Vec<Column>) {
@@ -405,13 +421,32 @@ mod tests {
         use syn::parse_quote;
 
         use crate::attr::Parser;
+        use crate::database::DbType;
         use crate::types::{Operation, StructType};
+
+        #[test]
+        fn test_parse_db_type() {
+            let struct_name = format_ident!("MyStruct");
+            let attrs = vec![parse_quote!(#[tiny_orm(db_type = "sqlite")])];
+            let (parsed_struct, db_type, operations, soft_deletion) =
+                Parser::parse_struct_macro_arguments(&struct_name, &attrs);
+            assert_eq!(parsed_struct.name.to_string(), "MyStruct".to_string());
+            assert_eq!(parsed_struct.struct_type, StructType::Generic);
+            assert_eq!(
+                parsed_struct.table_name.0.to_string(),
+                "my_struct".to_string()
+            );
+            assert_eq!(parsed_struct.return_object, format_ident!("Self"));
+            assert_eq!(db_type, DbType::Sqlite);
+            assert_eq!(operations, vec![Operation::Create, Operation::Get]);
+            assert!(!soft_deletion);
+        }
 
         #[test]
         fn test_parse_only_attribute_alone() {
             let struct_name = format_ident!("MyStruct");
             let attrs = vec![parse_quote!(#[tiny_orm(only = "create,get")])];
-            let (parsed_struct, operations, soft_deletion) =
+            let (parsed_struct, _, operations, soft_deletion) =
                 Parser::parse_struct_macro_arguments(&struct_name, &attrs);
             assert_eq!(parsed_struct.name.to_string(), "MyStruct".to_string());
             assert_eq!(parsed_struct.struct_type, StructType::Generic);
@@ -428,7 +463,7 @@ mod tests {
         fn test_parse_exclude_attribute_alone() {
             let struct_name = format_ident!("MyStruct");
             let attrs = vec![parse_quote!(#[tiny_orm(exclude = "create,get")])];
-            let (parsed_struct, mut operations, soft_deletion) =
+            let (parsed_struct, _, mut operations, soft_deletion) =
                 Parser::parse_struct_macro_arguments(&struct_name, &attrs);
             operations.sort();
 
@@ -447,7 +482,7 @@ mod tests {
         fn test_parse_table_name_attribute_alone() {
             let struct_name = format_ident!("MyStruct");
             let attrs = vec![parse_quote!(#[tiny_orm(table_name = "custom_name")])];
-            let (parsed_struct, mut operations, soft_deletion) =
+            let (parsed_struct, _, mut operations, soft_deletion) =
                 Parser::parse_struct_macro_arguments(&struct_name, &attrs);
             operations.sort();
             assert_eq!(parsed_struct.name.to_string(), "MyStruct".to_string());
@@ -467,8 +502,9 @@ mod tests {
         #[test]
         fn test_parse_return_object_attribute_alone() {
             let struct_name = format_ident!("MyStruct");
-            let attrs = vec![parse_quote!(#[tiny_orm(return_object = "Operation")])];
-            let (parsed_struct, mut operations, soft_deletion) =
+            let attrs =
+                vec![parse_quote!(#[tiny_orm(db_type = "sqlite", return_object = "Operation")])];
+            let (parsed_struct, _, mut operations, soft_deletion) =
                 Parser::parse_struct_macro_arguments(&struct_name, &attrs);
             operations.sort();
             assert_eq!(
@@ -490,7 +526,7 @@ mod tests {
             let attrs = vec![
                 parse_quote!(#[tiny_orm(table_name = "custom", return_object = "Operation", only = "create")]),
             ];
-            let (parsed_struct, mut operations, soft_deletion) =
+            let (parsed_struct, _, mut operations, soft_deletion) =
                 Parser::parse_struct_macro_arguments(&struct_name, &attrs);
             operations.sort();
             assert_eq!(parsed_struct.table_name.0.to_string(), "custom".to_string());
@@ -503,9 +539,9 @@ mod tests {
         fn test_parse_multiple_attributes_withespace() {
             let struct_name = format_ident!("MyStruct");
             let attrs = vec![
-                parse_quote!(#[tiny_orm(table_name = "   custom ", return_object = "   Operation  ", only = "  create   ,  delete")]),
+                parse_quote!(#[tiny_orm(table_name = "   custom ", db_type = "sqlite", return_object = "   Operation  ", only = "  create   ,  delete")]),
             ];
-            let (parsed_struct, mut operations, soft_deletion) =
+            let (parsed_struct, _, mut operations, soft_deletion) =
                 Parser::parse_struct_macro_arguments(&struct_name, &attrs);
             operations.sort();
             assert_eq!(parsed_struct.table_name.0.to_string(), "custom".to_string());
@@ -518,7 +554,7 @@ mod tests {
         fn test_default_parse_create_type_of_struct() {
             let struct_name = format_ident!("NewMyStruct");
             let attrs = vec![parse_quote!(#[tiny_orm()])];
-            let (parsed_struct, mut operations, soft_deletion) =
+            let (parsed_struct, _, mut operations, soft_deletion) =
                 Parser::parse_struct_macro_arguments(&struct_name, &attrs);
             operations.sort();
             assert_eq!(parsed_struct.name.to_string(), "NewMyStruct".to_string());
@@ -536,7 +572,7 @@ mod tests {
         fn test_default_parse_update_type_of_struct() {
             let struct_name = format_ident!("UpdateMyStruct");
             let attrs = vec![parse_quote!(#[tiny_orm()])];
-            let (parsed_struct, mut operations, soft_deletion) =
+            let (parsed_struct, _, mut operations, soft_deletion) =
                 Parser::parse_struct_macro_arguments(&struct_name, &attrs);
             operations.sort();
             assert_eq!(parsed_struct.name.to_string(), "UpdateMyStruct".to_string());
@@ -556,7 +592,7 @@ mod tests {
             let attrs = vec![
                 parse_quote!(#[tiny_orm(table_name = "   custom ", return_object = "   Operation  ", only = "  create   ,  delete")]),
             ];
-            let (parsed_struct, mut operations, soft_deletion) =
+            let (parsed_struct, _, mut operations, soft_deletion) =
                 Parser::parse_struct_macro_arguments(&struct_name, &attrs);
             operations.sort();
             assert_eq!(parsed_struct.name.to_string(), "NewMyStruct".to_string());
@@ -573,7 +609,7 @@ mod tests {
             let attrs = vec![
                 parse_quote!(#[tiny_orm(table_name = "   custom ", return_object = "   Operation  ", only = "  create   ,  delete", soft_deletion)]),
             ];
-            let (parsed_struct, mut operations, soft_deletion) =
+            let (parsed_struct, db_type, mut operations, soft_deletion) =
                 Parser::parse_struct_macro_arguments(&struct_name, &attrs);
             operations.sort();
             assert_eq!(parsed_struct.name.to_string(), "UpdateMyStruct".to_string());
@@ -588,7 +624,7 @@ mod tests {
         fn test_return_all_operations_for_generic_struct() {
             let struct_name = format_ident!("MyStruct");
             let attrs = vec![parse_quote!(#[tiny_orm(all, table_name = "custom")])];
-            let (parsed_struct, mut operations, soft_deletion) =
+            let (parsed_struct, _, mut operations, soft_deletion) =
                 Parser::parse_struct_macro_arguments(&struct_name, &attrs);
             operations.sort();
             assert_eq!(parsed_struct.name.to_string(), "MyStruct".to_string());
@@ -601,7 +637,7 @@ mod tests {
         fn test_return_all_operations_for_update_struct() {
             let struct_name = format_ident!("NewMyStruct");
             let attrs = vec![parse_quote!(#[tiny_orm(all, soft_deletion)])];
-            let (parsed_struct, mut operations, soft_deletion) =
+            let (parsed_struct, _, mut operations, soft_deletion) =
                 Parser::parse_struct_macro_arguments(&struct_name, &attrs);
             operations.sort();
             assert_eq!(parsed_struct.struct_type, StructType::Create);
@@ -613,7 +649,7 @@ mod tests {
         fn test_return_all_operations_for_create_struct() {
             let struct_name = format_ident!("UpdateMyStruct");
             let attrs = vec![parse_quote!(#[tiny_orm(all)])];
-            let (parsed_struct, mut operations, soft_deletion) =
+            let (parsed_struct, _, mut operations, soft_deletion) =
                 Parser::parse_struct_macro_arguments(&struct_name, &attrs);
             operations.sort();
             assert_eq!(parsed_struct.struct_type, StructType::Update);
@@ -633,7 +669,7 @@ mod tests {
         fn test_pass_all_with_exclude() {
             let struct_name = format_ident!("MyStruct");
             let attrs = vec![parse_quote!(#[tiny_orm(all, exclude = "delete")])];
-            let (parsed_struct, mut operations, soft_deletion) =
+            let (parsed_struct, _, mut operations, soft_deletion) =
                 Parser::parse_struct_macro_arguments(&struct_name, &attrs);
             operations.sort();
             assert_eq!(parsed_struct.struct_type, StructType::Generic);
@@ -800,10 +836,13 @@ mod tests {
     }
 
     mod parse {
-        use quote::{ToTokens, format_ident};
+        use quote::{format_ident, ToTokens};
         use syn::{parse_quote, DeriveInput};
 
-        use crate::attr::{Column, Operation, ParsedStruct};
+        use crate::{
+            attr::{Column, Operation, ParsedStruct},
+            database::DbType,
+        };
 
         use super::Attr;
 
@@ -835,6 +874,7 @@ mod tests {
                     ],
                     operations: vec![Operation::Get, Operation::List, Operation::Delete],
                     soft_deletion: false,
+                    db_type: DbType::Postgres,
                 }
             );
         }
@@ -842,7 +882,7 @@ mod tests {
         #[test]
         fn test_parse_all_options_specified() {
             let input: DeriveInput = parse_quote! {
-                #[tiny_orm(table_name = "specific_table", only = "create", return_object = "AnotherObject")]
+                #[tiny_orm(table_name = "specific_table", db_type = "sqlite", only = "create", return_object = "AnotherObject")]
                 struct Contact {
                     #[tiny_orm(primary_key)]
                     custom_pk: i64,
@@ -874,6 +914,7 @@ mod tests {
 
                     operations: vec![Operation::Create],
                     soft_deletion: false,
+                    db_type: DbType::Sqlite,
                 }
             );
         }

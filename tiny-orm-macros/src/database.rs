@@ -2,13 +2,24 @@ use quote::format_ident;
 use syn::Ident;
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum DbType {
+    #[default]
     Postgres,
     MySQL,
     Sqlite,
 }
+
 impl DbType {
+    pub fn parse(identifier: &str) -> Self {
+        match identifier {
+            "postgres" => Self::Postgres,
+            "mysql" => Self::MySQL,
+            "sqlite" => Self::Sqlite,
+            _ => panic!("unknown db type: {identifier}"),
+        }
+    }
+
     pub fn to_ident(&self) -> Ident {
         match self {
             DbType::Postgres => format_ident!("PgExecutor"),
@@ -16,19 +27,4 @@ impl DbType {
             DbType::Sqlite => format_ident!("SqliteExecutor"),
         }
     }
-}
-
-#[cfg(feature = "postgres")]
-pub fn db_type() -> DbType {
-    DbType::Postgres
-}
-
-#[cfg(feature = "mysql")]
-pub fn db_type() -> DbType {
-    DbType::MySQL
-}
-
-#[cfg(feature = "sqlite")]
-pub fn db_type() -> DbType {
-    DbType::Sqlite
 }

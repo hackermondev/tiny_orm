@@ -39,9 +39,9 @@ impl ReturnType {
         }
     }
 
-    fn returning_statement(self) -> proc_macro2::TokenStream {
+    fn returning_statement(self, db_type: &DbType) -> proc_macro2::TokenStream {
         // MySQL does not support the RETURNING statement
-        if database::db_type() == DbType::MySQL {
+        if *db_type == DbType::MySQL {
             return quote! {};
         }
         match self {
@@ -61,8 +61,8 @@ impl ReturnType {
         }
     }
 
-    fn query_builder_execution(self) -> proc_macro2::TokenStream {
-        match (database::db_type(), self) {
+    fn query_builder_execution(self, db_type: &DbType) -> proc_macro2::TokenStream {
+        match (db_type, self) {
             (
                 DbType::MySQL,
                 ReturnType::PrimaryKey(Column {
@@ -126,10 +126,10 @@ pub fn get_table_name(attr: &Attr) -> proc_macro2::TokenStream {
 }
 
 pub fn get_by_id_fn(attr: &Attr) -> proc_macro2::TokenStream {
-    let db_type_ident = database::db_type().to_ident();
+    let db_type_ident = attr.db_type.to_ident();
     let return_type = ReturnType::OptionalRow(attr.clone().parsed_struct.return_object);
     let function_output = return_type.clone().function_output();
-    let query_builder_execution = return_type.query_builder_execution();
+    let query_builder_execution = return_type.query_builder_execution(&attr.db_type);
     let table_name = &attr.parsed_struct.table_name.0;
 
     let (pk_name, pk_type) = match attr.primary_key {
@@ -163,12 +163,11 @@ pub fn get_by_id_fn(attr: &Attr) -> proc_macro2::TokenStream {
 }
 
 pub fn query_fn(attr: &Attr) -> proc_macro2::TokenStream {
-    let db_type_ident = database::db_type().to_ident();
+    let db_type_ident = attr.db_type.to_ident();
     let return_type = ReturnType::MultipleRows(attr.clone().parsed_struct.return_object);
     let function_output = return_type.clone().function_output();
-    let query_builder_execution = return_type.query_builder_execution();
+    let query_builder_execution = return_type.query_builder_execution(&attr.db_type);
     let table_name = &attr.parsed_struct.table_name.0;
-
 
     let where_statement = match attr.soft_deletion {
         true => quote! {
@@ -229,16 +228,16 @@ pub fn query_fn(attr: &Attr) -> proc_macro2::TokenStream {
             #(#selector_statement)*
 
             qb.push(format!(" LIMIT {limit} OFFSET {offset}"));
-            #query_builder_execution    
+            #query_builder_execution
         }
     }
 }
 
 pub fn list_all_fn(attr: &Attr) -> proc_macro2::TokenStream {
-    let db_type_ident = database::db_type().to_ident();
+    let db_type_ident = attr.db_type.to_ident();
     let return_type = ReturnType::MultipleRows(attr.clone().parsed_struct.return_object);
     let function_output = return_type.clone().function_output();
-    let query_builder_execution = return_type.query_builder_execution();
+    let query_builder_execution = return_type.query_builder_execution(&attr.db_type);
     let table_name = &attr.parsed_struct.table_name.0;
 
     let where_statement = match attr.soft_deletion {
@@ -262,7 +261,7 @@ pub fn list_all_fn(attr: &Attr) -> proc_macro2::TokenStream {
 }
 
 pub fn create_fn(attr: &Attr) -> proc_macro2::TokenStream {
-    let db_type = database::db_type();
+    let db_type = &attr.db_type;
     let db_type_ident = db_type.clone().to_ident();
     let table_name = &attr.parsed_struct.table_name.0;
 
@@ -275,8 +274,8 @@ pub fn create_fn(attr: &Attr) -> proc_macro2::TokenStream {
     };
 
     let function_output = return_type.clone().function_output();
-    let returning_statement = return_type.clone().returning_statement();
-    let query_builder_execution = return_type.query_builder_execution();
+    let returning_statement = return_type.clone().returning_statement(&attr.db_type);
+    let query_builder_execution = return_type.query_builder_execution(&attr.db_type);
 
     let mut field_str_quote = Vec::new();
     let mut field_values_quote = Vec::new();
@@ -344,11 +343,11 @@ pub fn create_fn(attr: &Attr) -> proc_macro2::TokenStream {
 }
 
 pub fn create_bulk_fn(attr: &Attr) -> proc_macro2::TokenStream {
-    let db_type_ident = database::db_type().to_ident();
+    let db_type_ident = attr.db_type.to_ident();
     let return_type = ReturnType::MultipleRows(attr.clone().parsed_struct.return_object);
-    let returning_statement = return_type.clone().returning_statement();
+    let returning_statement = return_type.clone().returning_statement(&attr.db_type);
     let function_output = return_type.clone().function_output();
-    let query_builder_execution = return_type.query_builder_execution();
+    let query_builder_execution = return_type.query_builder_execution(&attr.db_type);
     let table_name = &attr.parsed_struct.table_name.0;
 
     let mut field_str_quote = Vec::new();
@@ -413,7 +412,7 @@ pub fn create_bulk_fn(attr: &Attr) -> proc_macro2::TokenStream {
             }
 
             let fields_str = fields.get(0).unwrap();
-            
+
             qb.push(" (");
             qb.push(fields_str.join(", "));
             qb.push(") VALUES ");
@@ -428,7 +427,7 @@ pub fn create_bulk_fn(attr: &Attr) -> proc_macro2::TokenStream {
                 #(#field_values_quote)*
                 separated.push_unseparated(")");
             }
-            
+
             #returning_statement
 
             #query_builder_execution
@@ -437,18 +436,18 @@ pub fn create_bulk_fn(attr: &Attr) -> proc_macro2::TokenStream {
 }
 
 pub fn update_fn(attr: &Attr) -> proc_macro2::TokenStream {
-    let db_type_ident = database::db_type().to_ident();
+    let db_type_ident = attr.db_type.to_ident();
 
     let self_ident = format_ident!("Self");
-    let return_type = match (database::db_type(), &attr.parsed_struct.return_object) {
+    let return_type = match (&attr.db_type, &attr.parsed_struct.return_object) {
         (DbType::MySQL, _) => ReturnType::None, // MySQL is not capable to return the entire row.
         (_, ident) if ident == &self_ident => ReturnType::None,
         (_, _) => ReturnType::EntireRow(attr.parsed_struct.return_object.clone()),
     };
 
     let function_output = return_type.clone().function_output();
-    let query_builder_execution = return_type.clone().query_builder_execution();
-    let returning_statement = return_type.returning_statement();
+    let query_builder_execution = return_type.clone().query_builder_execution(&attr.db_type);
+    let returning_statement = return_type.returning_statement(&attr.db_type);
 
     let table_name = &attr.parsed_struct.table_name.0;
     let (pk_name, pk_ident) = match attr.primary_key {
@@ -520,12 +519,12 @@ pub fn update_fn(attr: &Attr) -> proc_macro2::TokenStream {
 }
 
 pub fn delete_fn(attr: &Attr) -> proc_macro2::TokenStream {
-    let db_type_ident = database::db_type().to_ident();
+    let db_type_ident = attr.db_type.to_ident();
     let return_type = ReturnType::None;
     let function_output = return_type.clone().function_output();
-    let query_builder_execution = return_type.query_builder_execution();
+    let query_builder_execution = return_type.query_builder_execution(&attr.db_type);
     let table_name = &attr.parsed_struct.table_name.0;
-    let delete_statement = match (attr.soft_deletion, database::db_type()) {
+    let delete_statement = match (attr.soft_deletion, &attr.db_type) {
         (true, DbType::Postgres) => quote! {
             let mut qb = ::sqlx::QueryBuilder::new("UPDATE ");
             qb.push(#table_name);
@@ -630,7 +629,7 @@ mod tests {
     }
 
     mod simple_attr {
-        use quote::{ToTokens, format_ident};
+        use quote::{format_ident, ToTokens};
         use syn::parse_quote;
 
         use crate::types::{Column, Operation, ParsedStruct};
@@ -659,6 +658,7 @@ mod tests {
                 ],
                 operations: Operation::all(),
                 soft_deletion,
+                db_type: DbType::Postgres,
             }
         }
 
@@ -1169,6 +1169,7 @@ mod tests {
                 ],
                 operations: vec![Operation::Create],
                 soft_deletion: false,
+                db_type: DbType::Postgres,
             };
 
             let generated = clean_tokens(create_fn(&input));
@@ -1240,6 +1241,7 @@ mod tests {
                 ],
                 operations: vec![Operation::Create],
                 soft_deletion: false,
+                db_type: DbType::Postgres,
             };
 
             let generated = clean_tokens(create_fn(&input));
@@ -1303,6 +1305,7 @@ mod tests {
                 ],
                 operations: vec![Operation::Create],
                 soft_deletion: false,
+                db_type: DbType::Postgres,
             };
 
             let generated = clean_tokens(create_fn(&input));
@@ -1367,6 +1370,7 @@ mod tests {
                 ],
                 operations: vec![Operation::Create],
                 soft_deletion: false,
+                db_type: DbType::Postgres,
             };
 
             let generated = clean_tokens(create_fn(&input));
@@ -1429,6 +1433,7 @@ mod tests {
                 columns: vec![primary_key, Column::new("first_name", parse_quote!(String))],
                 operations: vec![Operation::Update],
                 soft_deletion: false,
+                db_type: DbType::Postgres,
             };
 
             let generated = clean_tokens(update_fn(&input));
@@ -1537,6 +1542,7 @@ mod tests {
                 ],
                 operations: vec![Operation::Update],
                 soft_deletion: false,
+                db_type: DbType::Postgres,
             };
 
             let generated = clean_tokens(update_fn(&input));

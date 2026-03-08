@@ -2,11 +2,11 @@ use convert_case::{Case, Casing};
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, ToTokens};
 use regex::Regex;
-use syn::parse::Parse;
 use std::borrow::Cow;
 use std::sync::LazyLock;
 use std::{fmt, str::FromStr};
-use syn::{Ident, LitStr, Path, Type, parse_str, parse2};
+use syn::parse::Parse;
+use syn::{parse2, parse_str, Ident, LitStr, Path, Type};
 
 static FIND_SET_OPTION_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(?:tiny_orm\s*::\s*)*SetOption\s*<").unwrap());
@@ -66,7 +66,7 @@ impl ParsedStruct {
             None => {
                 let name = struct_type.remove_prefix(&name);
                 TableName(quote! { #name })
-            },
+            }
         };
 
         let return_object = match (return_object, &struct_type) {
@@ -163,7 +163,7 @@ impl Column {
 }
 
 #[derive(Debug, Clone)]
-pub struct TableName (pub TokenStream);
+pub struct TableName(pub TokenStream);
 
 impl TableName {
     pub fn to_string(&self) -> String {

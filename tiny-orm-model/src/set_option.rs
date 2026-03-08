@@ -29,7 +29,9 @@ pub enum SetOption<T> {
 /// assert_eq!(set_option, SetOption::Set(1));
 /// ```
 impl<T> From<T> for SetOption<T> {
-    fn from(value: T) -> Self { SetOption::Set(value) }
+    fn from(value: T) -> Self {
+        SetOption::Set(value)
+    }
 }
 
 impl<T> From<Option<T>> for SetOption<T> {
@@ -45,7 +47,8 @@ impl<T> From<Option<T>> for SetOption<T> {
 impl<T: serde::Serialize> serde::Serialize for SetOption<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer, {
+        S: serde::Serializer,
+    {
         let inner = self.value_ref().ok();
         inner.serialize(serializer)
     }
@@ -55,7 +58,8 @@ impl<T: serde::Serialize> serde::Serialize for SetOption<T> {
 impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for SetOption<T> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: serde::Deserializer<'de>, {
+        D: serde::Deserializer<'de>,
+    {
         Option::deserialize(deserializer).map(|o| o.into())
     }
 }
@@ -312,9 +316,13 @@ where
     DB: Database,
     T: Type<DB>,
 {
-    fn type_info() -> <DB as Database>::TypeInfo { T::type_info() }
+    fn type_info() -> <DB as Database>::TypeInfo {
+        T::type_info()
+    }
 
-    fn compatible(ty: &<DB as Database>::TypeInfo) -> bool { T::compatible(ty) }
+    fn compatible(ty: &<DB as Database>::TypeInfo) -> bool {
+        T::compatible(ty)
+    }
 }
 
 /// Implements database encoding for `SetOption<T>`.
@@ -386,7 +394,8 @@ where
     }
 
     fn encode_by_ref(
-        &self, buf: &mut <DB as Database>::ArgumentBuffer<'q>,
+        &self,
+        buf: &mut <DB as Database>::ArgumentBuffer<'q>,
     ) -> Result<IsNull, BoxDynError> {
         match self {
             SetOption::Set(value) => value.encode_by_ref(buf),
@@ -415,26 +424,28 @@ where
 // ##########################
 // ##########################
 #[cfg(feature = "sqlx-0.7")]
-use sqlx::{Database, ValueRef, encode::IsNull, error::BoxDynError};
+use sqlx::{encode::IsNull, error::BoxDynError, Database, ValueRef};
 #[cfg(feature = "sqlx-0.7")]
 impl<DB: Database, T> sqlx::Type<DB> for SetOption<T>
 where
     T: sqlx::Type<DB>,
 {
-    fn type_info() -> <DB as Database>::TypeInfo { T::type_info() }
+    fn type_info() -> <DB as Database>::TypeInfo {
+        T::type_info()
+    }
 }
 
 #[cfg(all(feature = "sqlx-0.7", feature = "mysql"))]
-use sqlx::{MySql, mysql::MySqlValueRef};
+use sqlx::{mysql::MySqlValueRef, MySql};
 #[cfg(all(feature = "sqlx-0.7", feature = "postgres"))]
 use sqlx::{
-    Postgres,
     postgres::{PgArgumentBuffer, PgValueRef},
+    Postgres,
 };
 #[cfg(all(feature = "sqlx-0.7", feature = "sqlite"))]
 use sqlx::{
-    Sqlite,
     sqlite::{SqliteArgumentValue, SqliteValueRef},
+    Sqlite,
 };
 
 /// Implements database decoding for SetOption<T>.
