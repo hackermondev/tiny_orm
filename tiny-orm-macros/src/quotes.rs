@@ -288,6 +288,10 @@ pub fn query_fn(attr: &Attr) -> proc_macro2::TokenStream {
             let mut i = 0;
             #(#selector_statement)*
 
+            if i == 0 {
+                qb.push("1=1");
+            }
+
             qb.push(format!(" LIMIT {limit}"));
             #query_builder_execution
         }
