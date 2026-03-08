@@ -1,4 +1,5 @@
 use quote::{format_ident, quote};
+use syn::Ident;
 
 use crate::{
     attr::Attr,
@@ -162,6 +163,42 @@ pub fn get_by_id_fn(attr: &Attr) -> proc_macro2::TokenStream {
     }
 }
 
+pub fn query_model_struct(attr: &Attr) -> proc_macro2::TokenStream {
+    let struct_visibility = &attr.parsed_struct.visibility;
+    let struct_name = &attr.parsed_struct.name;
+
+    let query_struct_name = Ident::new(&format!("Query{struct_name}"), struct_name.span());
+    let columns = attr
+        .columns
+        .iter()
+        .map(|column| {
+            let column_vis = &column.visibility;
+            let column_name = &column.ident;
+            let column_type = column.inner_type();
+            let query_operator_type = if column.is_array() {
+                quote! { ::tiny_orm::ArrayColumnOperator<#column_type> }
+            } else {
+                quote! { ::tiny_orm::ColumnOperator<#column_type> }
+            };
+
+            quote! { #column_vis #column_name : Vec<#query_operator_type> }
+        })
+        .collect::<Vec<_>>();
+
+    let query_impl = query_fn(attr);
+
+    quote! {
+        #[derive(Debug, Default)]
+        #struct_visibility struct #query_struct_name {
+            #(#columns),*
+        }
+
+        impl #query_struct_name {
+            #query_impl
+        }
+    }
+}
+
 pub fn query_fn(attr: &Attr) -> proc_macro2::TokenStream {
     let db_type_ident = attr.db_type.to_ident();
     let return_type = ReturnType::MultipleRows(attr.clone().parsed_struct.return_object);
@@ -177,57 +214,81 @@ pub fn query_fn(attr: &Attr) -> proc_macro2::TokenStream {
             qb.push(" WHERE ");
         },
     };
+
     let mut selector_statement = Vec::new();
+
+    let match_column_operator = quote! {
+        match operator {
+            ::tiny_orm::ColumnOperator::Equal(v) => {
+                qb.push(format!("{column_name} = "));
+                qb.push_bind(v);
+            }
+            ::tiny_orm::ColumnOperator::NotEqual(v) => {
+                qb.push(format!("{column_name} != "));
+                qb.push_bind(v);
+            }
+            ::tiny_orm::ColumnOperator::GreaterThan(v) => {
+                qb.push(format!("{column_name} > "));
+                qb.push_bind(v);
+            }
+            ::tiny_orm::ColumnOperator::LessThan(v) => {
+                qb.push(format!("{column_name} < "));
+                qb.push_bind(v);
+            }
+        }
+    };
+    let match_array_column_operator = quote! {
+        match operator {
+            ::tiny_orm::ArrayColumnOperator::Contains(v) => {
+                qb.push(format!("{column_name} @> "));
+                qb.push_bind(v);
+            }
+            ::tiny_orm::ArrayColumnOperator::NotContains(v) => {
+                qb.push(format!("NOT ({column_name} @> "));
+                qb.push_bind(v);
+                qb.push(")");
+            }
+        }
+    };
+
     for column in attr.columns.iter() {
-        let selector = if column.use_set_options() {
-            let column_ident = &column.ident;
-            let column_name = column.safe_name();
-            quote! {
-                if self.#column_ident.is_set() {
-                    let value = self.#column_ident.value_ref().unwrap();
+        let column_ident = &column.ident;
+        let column_name = column.safe_name();
+        let match_operator = if column.is_array() {
+            &match_array_column_operator
+        } else {
+            &match_column_operator
+        };
+
+        let selector = quote! {
+            if !self.#column_ident.is_empty() {
+                let column_name = #column_name;
+                for operator in &self.#column_ident {
                     if i > 0 {
                         qb.push(" AND ");
                     }
 
-                    let column_name = #column_name;
-                    qb.push(format!("{column_name} = "));
-                    qb.push_bind(value);
+                    #match_operator
                     i += 1;
                 }
             }
-        } else {
-            let column_name = column.safe_name();
-            let column_ident = &column.ident;
-
-            quote! {
-                let value = self.#column_ident.value_ref();
-                if i > 0 {
-                    qb.push(" AND ");
-                }
-
-                let column_name = #column_name;
-                qb.push(format!("{column_name} = "));
-                qb.push_bind(value);
-                i += 1;
-            }
         };
-
         selector_statement.push(selector);
     }
 
     quote! {
-        pub async fn query<'e, E>(&self, db: E, limit: u64, offset: u64) -> #function_output
+        pub async fn query<'e, E>(&self, db: E, limit: u64) -> #function_output
         where
             E: ::sqlx::#db_type_ident<'e>
         {
-        let mut qb = ::sqlx::QueryBuilder::new("SELECT * FROM ");
+            let mut qb = ::sqlx::QueryBuilder::new("SELECT * FROM ");
             qb.push(#table_name);
             #where_statement
 
             let mut i = 0;
             #(#selector_statement)*
 
-            qb.push(format!(" LIMIT {limit} OFFSET {offset}"));
+            qb.push(format!(" LIMIT {limit}"));
             #query_builder_execution
         }
     }
@@ -630,31 +691,40 @@ mod tests {
 
     mod simple_attr {
         use quote::{format_ident, ToTokens};
-        use syn::parse_quote;
+        use syn::{parse_quote, Visibility};
 
         use crate::types::{Column, Operation, ParsedStruct};
 
         use super::*;
 
         fn input(auto_increment: bool, soft_deletion: bool) -> Attr {
-            let mut primary_key = Column::new("id", parse_quote!(i64));
+            let mut primary_key = Column::new("id", Visibility::Inherited, parse_quote!(i64));
             primary_key.set_primary_key();
             if auto_increment {
                 primary_key.set_auto_increment();
             };
             let parsed_struct = ParsedStruct::new(
                 &format_ident!("Contact"),
+                &Visibility::Inherited,
                 Some("contact".to_token_stream()),
-                Some(format_ident!("Self")),
+                None,
             );
             Attr {
                 parsed_struct,
                 primary_key: Some(primary_key.clone()),
                 columns: vec![
                     primary_key,
-                    Column::new("created_at", parse_quote!(DateTime<Utc>)),
-                    Column::new("updated_at", parse_quote!(DateTime<Utc>)),
-                    Column::new("last_name", parse_quote!(String)),
+                    Column::new(
+                        "created_at",
+                        Visibility::Inherited,
+                        parse_quote!(DateTime<Utc>),
+                    ),
+                    Column::new(
+                        "updated_at",
+                        Visibility::Inherited,
+                        parse_quote!(DateTime<Utc>),
+                    ),
+                    Column::new("last_name", Visibility::Inherited, parse_quote!(String)),
                 ],
                 operations: Operation::all(),
                 soft_deletion,
@@ -673,7 +743,6 @@ mod tests {
             assert_eq!(generated, expected);
         }
 
-        #[cfg(not(feature = "mysql"))]
         #[test]
         fn test_generate_create_method() {
             let db_ident = db_ident();
@@ -1152,20 +1221,25 @@ mod tests {
         use super::*;
         use crate::attr::Attr;
         use crate::types::*;
-        use syn::parse_quote;
+        use syn::{parse_quote, Visibility};
 
         #[cfg(not(feature = "mysql"))]
         #[test]
         fn test_custom_output_create() {
             let db_ident = db_ident();
-            let parsed_struct = ParsedStruct::new(&format_ident!("NewContact"), None, None);
+            let parsed_struct = ParsedStruct::new(
+                &format_ident!("NewContact"),
+                &Visibility::Inherited,
+                None,
+                None,
+            );
             let input = Attr {
                 parsed_struct,
                 primary_key: None,
                 columns: vec![
-                    Column::new("first_name", parse_quote!(String)),
-                    Column::new("last_name", parse_quote!(String)),
-                    Column::new("email", parse_quote!(String)),
+                    Column::new("first_name", Visibility::Inherited, parse_quote!(String)),
+                    Column::new("last_name", Visibility::Inherited, parse_quote!(String)),
+                    Column::new("email", Visibility::Inherited, parse_quote!(String)),
                 ],
                 operations: vec![Operation::Create],
                 soft_deletion: false,
@@ -1230,14 +1304,27 @@ mod tests {
         #[test]
         fn test_setoption_create_null_pk() {
             let db_ident = db_ident();
-            let parsed_struct = ParsedStruct::new(&format_ident!("NewContact"), None, None);
+            let parsed_struct = ParsedStruct::new(
+                &format_ident!("NewContact"),
+                &Visibility::Inherited,
+                None,
+                None,
+            );
             let input = Attr {
                 parsed_struct,
                 primary_key: None,
                 columns: vec![
-                    Column::new("first_name", parse_quote!(SetOption<String>)),
-                    Column::new("last_name", parse_quote!(SetOption<String>)),
-                    Column::new("email", parse_quote!(String)),
+                    Column::new(
+                        "first_name",
+                        Visibility::Inherited,
+                        parse_quote!(SetOption<String>),
+                    ),
+                    Column::new(
+                        "last_name",
+                        Visibility::Inherited,
+                        parse_quote!(SetOption<String>),
+                    ),
+                    Column::new("email", Visibility::Inherited, parse_quote!(String)),
                 ],
                 operations: vec![Operation::Create],
                 soft_deletion: false,
@@ -1290,8 +1377,14 @@ mod tests {
         #[test]
         fn test_setoption_create_auto_generated_pk() {
             let db_ident = db_ident();
-            let parsed_struct = ParsedStruct::new(&format_ident!("NewContact"), None, None);
-            let mut primary_key = Column::new("incremental_id", parse_quote!(i64));
+            let parsed_struct = ParsedStruct::new(
+                &format_ident!("NewContact"),
+                &Visibility::Inherited,
+                None,
+                None,
+            );
+            let mut primary_key =
+                Column::new("incremental_id", Visibility::Inherited, parse_quote!(i64));
             primary_key.set_primary_key();
             primary_key.set_auto_increment();
             let input = Attr {
@@ -1299,9 +1392,17 @@ mod tests {
                 primary_key: Some(primary_key.clone()),
                 columns: vec![
                     primary_key,
-                    Column::new("first_name", parse_quote!(SetOption<String>)),
-                    Column::new("last_name", parse_quote!(SetOption<String>)),
-                    Column::new("email", parse_quote!(String)),
+                    Column::new(
+                        "first_name",
+                        Visibility::Inherited,
+                        parse_quote!(SetOption<String>),
+                    ),
+                    Column::new(
+                        "last_name",
+                        Visibility::Inherited,
+                        parse_quote!(SetOption<String>),
+                    ),
+                    Column::new("email", Visibility::Inherited, parse_quote!(String)),
                 ],
                 operations: vec![Operation::Create],
                 soft_deletion: false,
@@ -1356,17 +1457,30 @@ mod tests {
         #[test]
         fn test_setoption_create_custom_pk() {
             let db_ident = db_ident();
-            let parsed_struct = ParsedStruct::new(&format_ident!("NewContact"), None, None);
-            let mut primary_key = Column::new("uuid", parse_quote!(Uuid));
+            let parsed_struct = ParsedStruct::new(
+                &format_ident!("NewContact"),
+                &Visibility::Inherited,
+                None,
+                None,
+            );
+            let mut primary_key = Column::new("uuid", Visibility::Inherited, parse_quote!(Uuid));
             primary_key.set_primary_key();
             let input = Attr {
                 parsed_struct,
                 primary_key: Some(primary_key.clone()),
                 columns: vec![
                     primary_key,
-                    Column::new("first_name", parse_quote!(SetOption<String>)),
-                    Column::new("last_name", parse_quote!(SetOption<String>)),
-                    Column::new("email", parse_quote!(String)),
+                    Column::new(
+                        "first_name",
+                        Visibility::Inherited,
+                        parse_quote!(SetOption<String>),
+                    ),
+                    Column::new(
+                        "last_name",
+                        Visibility::Inherited,
+                        parse_quote!(SetOption<String>),
+                    ),
+                    Column::new("email", Visibility::Inherited, parse_quote!(String)),
                 ],
                 operations: vec![Operation::Create],
                 soft_deletion: false,
@@ -1423,14 +1537,23 @@ mod tests {
         #[test]
         fn test_custom_output_update() {
             let db_ident = db_ident();
-            let parsed_struct = ParsedStruct::new(&format_ident!("UpdateContact"), None, None);
-            let mut primary_key = Column::new("custom_id", parse_quote!(i64));
+            let parsed_struct = ParsedStruct::new(
+                &format_ident!("UpdateContact"),
+                &Visibility::Inherited,
+                None,
+                None,
+            );
+            let mut primary_key =
+                Column::new("custom_id", Visibility::Inherited, parse_quote!(i64));
             primary_key.set_primary_key();
 
             let input = Attr {
                 parsed_struct,
                 primary_key: Some(primary_key.clone()),
-                columns: vec![primary_key, Column::new("first_name", parse_quote!(String))],
+                columns: vec![
+                    primary_key,
+                    Column::new("first_name", Visibility::Inherited, parse_quote!(String)),
+                ],
                 operations: vec![Operation::Update],
                 soft_deletion: false,
                 db_type: DbType::Postgres,
@@ -1528,8 +1651,14 @@ mod tests {
         #[test]
         fn test_custom_output_update_setoption() {
             let db_ident = db_ident();
-            let parsed_struct = ParsedStruct::new(&format_ident!("UpdateContact"), None, None);
-            let mut primary_key = Column::new("custom_id", parse_quote!(i64));
+            let parsed_struct = ParsedStruct::new(
+                &format_ident!("UpdateContact"),
+                &Visibility::Inherited,
+                None,
+                None,
+            );
+            let mut primary_key =
+                Column::new("custom_id", Visibility::Inherited, parse_quote!(i64));
             primary_key.set_primary_key();
 
             let input = Attr {
@@ -1537,8 +1666,12 @@ mod tests {
                 primary_key: Some(primary_key.clone()),
                 columns: vec![
                     primary_key,
-                    Column::new("first_name", parse_quote!(SetOption<String>)),
-                    Column::new("last_name", parse_quote!(String)),
+                    Column::new(
+                        "first_name",
+                        Visibility::Inherited,
+                        parse_quote!(SetOption<String>),
+                    ),
+                    Column::new("last_name", Visibility::Inherited, parse_quote!(String)),
                 ],
                 operations: vec![Operation::Update],
                 soft_deletion: false,

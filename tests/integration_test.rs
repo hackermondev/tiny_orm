@@ -6,7 +6,7 @@ use sqlx::{
 use tiny_orm::Table;
 
 #[derive(Debug, PartialEq, Table, FromRow)]
-#[tiny_orm(exclude = "create", add = "update")]
+#[tiny_orm(exclude = "create", add = "update", db_type = "sqlite")]
 struct Todo {
     id: i32,
     created_at: DateTime<Utc>,
@@ -24,6 +24,7 @@ impl Todo {
 }
 
 #[derive(Debug, PartialEq, Table)]
+#[tiny_orm(db_type = "sqlite")]
 struct NewTodo {
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,

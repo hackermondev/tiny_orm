@@ -37,8 +37,8 @@ fn generate_impl(attr: &attr::Attr) -> proc_macro2::TokenStream {
         quote! {}
     };
 
-    let query_impl = if attr.operations.contains(&Operation::Query) {
-        quotes::query_fn(attr)
+    let query_struct = if attr.operations.contains(&Operation::Query) {
+        quotes::query_model_struct(attr)
     } else {
         quote! {}
     };
@@ -74,10 +74,11 @@ fn generate_impl(attr: &attr::Attr) -> proc_macro2::TokenStream {
     };
 
     quote! {
+        #query_struct
+
         impl #struct_name {
             #table_name_fn
             #get_impl
-            #query_impl
             #list_impl
             #create_impl
             #create_bulk_impl

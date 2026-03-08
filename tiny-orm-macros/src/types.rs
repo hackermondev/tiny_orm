@@ -6,7 +6,7 @@ use std::borrow::Cow;
 use std::sync::LazyLock;
 use std::{fmt, str::FromStr};
 use syn::parse::Parse;
-use syn::{parse2, parse_str, Ident, LitStr, Path, Type};
+use syn::{parse2, parse_str, Ident, LitStr, Path, Type, Visibility};
 
 static FIND_SET_OPTION_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(?:tiny_orm\s*::\s*)*SetOption\s*<").unwrap());
@@ -48,6 +48,7 @@ impl From<&str> for StructType {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedStruct {
     pub name: StructName,
+    pub visibility: Visibility,
     pub table_name: TableName,
     pub struct_type: StructType,
     pub return_object: ReturnObject,
@@ -55,6 +56,7 @@ pub struct ParsedStruct {
 impl ParsedStruct {
     pub fn new(
         struct_name: &Ident,
+        struct_visibility: &Visibility,
         table_name: Option<TokenStream>,
         return_object: Option<ReturnObject>,
     ) -> Self {
@@ -71,12 +73,13 @@ impl ParsedStruct {
 
         let return_object = match (return_object, &struct_type) {
             (Some(value), _) => value,
-            (None, &StructType::Generic) => format_ident!("Self"),
+            (None, &StructType::Generic) => struct_name.clone(),
             (None, _) => format_ident!("{}", struct_type.remove_prefix(&name)),
         };
 
         Self {
             name: struct_name.clone(),
+            visibility: struct_visibility.clone(),
             table_name,
             struct_type,
             return_object,
@@ -130,14 +133,16 @@ impl FromStr for Operation {
 pub struct Column {
     pub name: String,
     pub ident: Ident,
+    pub visibility: Visibility,
     pub _type: Type,
     pub auto_increment: bool,
     pub primary_key: bool,
 }
 impl Column {
-    pub fn new(name: &str, _type: Type) -> Self {
+    pub fn new(name: &str, visibility: Visibility, _type: Type) -> Self {
         Self {
             name: name.to_string(),
+            visibility,
             ident: format_ident!("{}", name),
             _type,
             auto_increment: false,
@@ -159,6 +164,29 @@ impl Column {
     }
     pub fn use_set_options(&self) -> bool {
         FIND_SET_OPTION_REGEX.is_match(&self._type.to_token_stream().to_string())
+    }
+    pub fn inner_type(&self) -> &syn::Type {
+        if self.use_set_options() {
+            match &self._type {
+                syn::Type::Path(path) => match &path.path.segments.last().unwrap().arguments {
+                    syn::PathArguments::AngleBracketed(args) => match args.args.last().unwrap() {
+                        syn::GenericArgument::Type(_type) => _type,
+                        _ => unreachable!(),
+                    },
+                    _ => unreachable!(),
+                },
+                _ => unreachable!(),
+            }
+        } else {
+            &self._type
+        }
+    }
+    pub fn is_array(&self) -> bool {
+        match self.inner_type() {
+            syn::Type::Array(_) => true,
+            syn::Type::Path(path) if path.path.segments.last().unwrap().ident == "Vec" => true,
+            _ => false,
+        }
     }
 }
 
@@ -186,7 +214,7 @@ pub type Operations = Vec<Operation>;
 
 #[cfg(test)]
 mod tests {
-    use syn::parse_quote;
+    use syn::{parse_quote, Visibility};
 
     use super::*;
 
@@ -195,7 +223,7 @@ mod tests {
 
         #[test]
         fn test_set_auto_increment() {
-            let mut column = Column::new("col_name", parse_quote!(i32));
+            let mut column = Column::new("col_name", Visibility::Inherited, parse_quote!(i32));
             assert!(!column.auto_increment);
             column.set_auto_increment();
             assert!(column.auto_increment);
@@ -203,7 +231,7 @@ mod tests {
 
         #[test]
         fn test_set_primary_key() {
-            let mut column = Column::new("col_name", parse_quote!(i32));
+            let mut column = Column::new("col_name", Visibility::Inherited, parse_quote!(i32));
             assert!(!column.primary_key);
             column.set_primary_key();
             assert!(column.primary_key);
@@ -212,25 +240,64 @@ mod tests {
         #[test]
         fn test_use_set_options_true() {
             let col_name = "col_name";
+            assert!(Column::new(
+                col_name,
+                Visibility::Inherited,
+                parse_quote!(tiny_orm::SetOption<i32>)
+            )
+            .use_set_options());
+            assert!(Column::new(
+                col_name,
+                Visibility::Inherited,
+                parse_quote!(SetOption<String>)
+            )
+            .use_set_options());
             assert!(
-                Column::new(col_name, parse_quote!(tiny_orm::SetOption<i32>)).use_set_options()
+                Column::new(col_name, Visibility::Inherited, parse_quote!(SetOption<!>))
+                    .use_set_options()
             );
-            assert!(Column::new(col_name, parse_quote!(SetOption<String>)).use_set_options());
-            assert!(Column::new(col_name, parse_quote!(SetOption<!>)).use_set_options());
-            assert!(Column::new(col_name, parse_quote!(SetOption<Option<bool>>)).use_set_options());
+            assert!(Column::new(
+                col_name,
+                Visibility::Inherited,
+                parse_quote!(SetOption<Option<bool>>)
+            )
+            .use_set_options());
         }
         #[test]
         fn test_use_set_options_false() {
             let col_name = "col_name";
-            assert!(!Column::new(col_name, parse_quote!(Option<i32>)).use_set_options());
-            assert!(!Column::new(col_name, parse_quote!(String)).use_set_options());
-            assert!(!Column::new(col_name, parse_quote!(!)).use_set_options());
-            assert!(!Column::new(col_name, parse_quote!(bool)).use_set_options());
-            assert!(!Column::new(col_name, parse_quote!(MyStruct<SetOption>)).use_set_options());
-            assert!(!Column::new(col_name, parse_quote!(Option<SetOption>)).use_set_options());
             assert!(
-                !Column::new(col_name, parse_quote!(Option<SetOption<bool>>)).use_set_options()
+                !Column::new(col_name, Visibility::Inherited, parse_quote!(Option<i32>))
+                    .use_set_options()
             );
+            assert!(
+                !Column::new(col_name, Visibility::Inherited, parse_quote!(String))
+                    .use_set_options()
+            );
+            assert!(
+                !Column::new(col_name, Visibility::Inherited, parse_quote!(!)).use_set_options()
+            );
+            assert!(
+                !Column::new(col_name, Visibility::Inherited, parse_quote!(bool)).use_set_options()
+            );
+            assert!(!Column::new(
+                col_name,
+                Visibility::Inherited,
+                parse_quote!(MyStruct<SetOption>)
+            )
+            .use_set_options());
+            assert!(!Column::new(
+                col_name,
+                Visibility::Inherited,
+                parse_quote!(Option<SetOption>)
+            )
+            .use_set_options());
+            assert!(!Column::new(
+                col_name,
+                Visibility::Inherited,
+                parse_quote!(Option<SetOption<bool>>)
+            )
+            .use_set_options());
         }
     }
 }

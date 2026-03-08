@@ -3,7 +3,7 @@ use quote::ToTokens;
 use std::{collections::HashSet, str::FromStr};
 use syn::{
     parenthesized, parse_str, punctuated::Punctuated, token::Paren, Attribute, Data, DeriveInput,
-    Expr, ExprLit, Fields, Ident, Lit, Meta, Token,
+    Expr, ExprLit, Fields, Ident, Lit, Meta, Token, Visibility,
 };
 
 use crate::{
@@ -26,8 +26,9 @@ pub struct Attr {
 impl Attr {
     pub fn parse(input: DeriveInput) -> Self {
         let struct_name = input.ident;
+        let struct_visibility = input.vis;
         let (parsed_struct, db_type, operations, soft_deletion) =
-            Parser::parse_struct_macro_arguments(&struct_name, &input.attrs);
+            Parser::parse_struct_macro_arguments(&struct_name, &struct_visibility, &input.attrs);
         let (primary_key, columns) = Parser::parse_fields_macro_arguments(input.data);
 
         Attr {
@@ -46,6 +47,7 @@ struct Parser();
 impl Parser {
     fn parse_struct_macro_arguments(
         struct_name: &Ident,
+        struct_visibility: &Visibility,
         attrs: &[Attribute],
     ) -> (ParsedStruct, DbType, Operations, bool) {
         let mut only: Option<Vec<Operation>> = None;
@@ -84,6 +86,10 @@ impl Parser {
                                 ..
                             }) = name_value.clone().value
                             {
+                                if lit_str.value() == "Self" {
+                                    panic!("return_type cannot be Self")
+                                }
+                                
                                 return_object = Some(
                                     parse_str::<Ident>(&lit_str.value())
                                         .expect("Failed to parse return_object as identifier"),
@@ -170,7 +176,8 @@ impl Parser {
             }
         }
 
-        let parsed_struct = ParsedStruct::new(struct_name, table_name, return_object);
+        let parsed_struct =
+            ParsedStruct::new(struct_name, struct_visibility, table_name, return_object);
         let db_type = db_type.unwrap_or_default();
         let operations = Parser::get_operations(
             only,
@@ -197,6 +204,7 @@ impl Parser {
                                 .as_ref()
                                 .expect("Field ident is expected to get its name")
                                 .to_string(),
+                            field.vis.clone(),
                             field.ty.clone(),
                         );
 
@@ -276,13 +284,13 @@ mod tests {
     use super::*;
 
     mod generic {
-        use syn::parse_quote;
+        use syn::{parse_quote, Visibility};
 
         use super::Column;
 
         #[test]
         fn test_set_auto_increment() {
-            let mut column = Column::new("col_name", parse_quote!(i32));
+            let mut column = Column::new("col_name", Visibility::Inherited, parse_quote!(i32));
             assert!(!column.auto_increment);
             column.set_auto_increment();
             assert!(column.auto_increment);
@@ -290,7 +298,7 @@ mod tests {
 
         #[test]
         fn test_set_primary_key() {
-            let mut column = Column::new("col_name", parse_quote!(i32));
+            let mut column = Column::new("col_name", Visibility::Inherited, parse_quote!(i32));
             assert!(!column.primary_key);
             column.set_primary_key();
             assert!(column.primary_key);
@@ -418,7 +426,7 @@ mod tests {
 
     mod parse_struct_macro_arguments {
         use quote::format_ident;
-        use syn::parse_quote;
+        use syn::{parse_quote, Visibility};
 
         use crate::attr::Parser;
         use crate::database::DbType;
@@ -429,7 +437,7 @@ mod tests {
             let struct_name = format_ident!("MyStruct");
             let attrs = vec![parse_quote!(#[tiny_orm(db_type = "sqlite")])];
             let (parsed_struct, db_type, operations, soft_deletion) =
-                Parser::parse_struct_macro_arguments(&struct_name, &attrs);
+                Parser::parse_struct_macro_arguments(&struct_name, &Visibility::Inherited, &attrs);
             assert_eq!(parsed_struct.name.to_string(), "MyStruct".to_string());
             assert_eq!(parsed_struct.struct_type, StructType::Generic);
             assert_eq!(
@@ -447,7 +455,7 @@ mod tests {
             let struct_name = format_ident!("MyStruct");
             let attrs = vec![parse_quote!(#[tiny_orm(only = "create,get")])];
             let (parsed_struct, _, operations, soft_deletion) =
-                Parser::parse_struct_macro_arguments(&struct_name, &attrs);
+                Parser::parse_struct_macro_arguments(&struct_name, &Visibility::Inherited, &attrs);
             assert_eq!(parsed_struct.name.to_string(), "MyStruct".to_string());
             assert_eq!(parsed_struct.struct_type, StructType::Generic);
             assert_eq!(
@@ -464,7 +472,7 @@ mod tests {
             let struct_name = format_ident!("MyStruct");
             let attrs = vec![parse_quote!(#[tiny_orm(exclude = "create,get")])];
             let (parsed_struct, _, mut operations, soft_deletion) =
-                Parser::parse_struct_macro_arguments(&struct_name, &attrs);
+                Parser::parse_struct_macro_arguments(&struct_name, &Visibility::Inherited, &attrs);
             operations.sort();
 
             assert_eq!(parsed_struct.name.to_string(), "MyStruct".to_string());
@@ -483,7 +491,7 @@ mod tests {
             let struct_name = format_ident!("MyStruct");
             let attrs = vec![parse_quote!(#[tiny_orm(table_name = "custom_name")])];
             let (parsed_struct, _, mut operations, soft_deletion) =
-                Parser::parse_struct_macro_arguments(&struct_name, &attrs);
+                Parser::parse_struct_macro_arguments(&struct_name, &Visibility::Inherited, &attrs);
             operations.sort();
             assert_eq!(parsed_struct.name.to_string(), "MyStruct".to_string());
             assert_eq!(parsed_struct.struct_type, StructType::Generic);
@@ -505,7 +513,7 @@ mod tests {
             let attrs =
                 vec![parse_quote!(#[tiny_orm(db_type = "sqlite", return_object = "Operation")])];
             let (parsed_struct, _, mut operations, soft_deletion) =
-                Parser::parse_struct_macro_arguments(&struct_name, &attrs);
+                Parser::parse_struct_macro_arguments(&struct_name, &Visibility::Inherited, &attrs);
             operations.sort();
             assert_eq!(
                 parsed_struct.table_name.0.to_string(),
@@ -527,7 +535,7 @@ mod tests {
                 parse_quote!(#[tiny_orm(table_name = "custom", return_object = "Operation", only = "create")]),
             ];
             let (parsed_struct, _, mut operations, soft_deletion) =
-                Parser::parse_struct_macro_arguments(&struct_name, &attrs);
+                Parser::parse_struct_macro_arguments(&struct_name, &Visibility::Inherited, &attrs);
             operations.sort();
             assert_eq!(parsed_struct.table_name.0.to_string(), "custom".to_string());
             assert_eq!(parsed_struct.return_object, format_ident!("Operation"));
@@ -542,7 +550,7 @@ mod tests {
                 parse_quote!(#[tiny_orm(table_name = "   custom ", db_type = "sqlite", return_object = "   Operation  ", only = "  create   ,  delete")]),
             ];
             let (parsed_struct, _, mut operations, soft_deletion) =
-                Parser::parse_struct_macro_arguments(&struct_name, &attrs);
+                Parser::parse_struct_macro_arguments(&struct_name, &Visibility::Inherited, &attrs);
             operations.sort();
             assert_eq!(parsed_struct.table_name.0.to_string(), "custom".to_string());
             assert_eq!(parsed_struct.return_object, format_ident!("Operation"));
@@ -555,7 +563,7 @@ mod tests {
             let struct_name = format_ident!("NewMyStruct");
             let attrs = vec![parse_quote!(#[tiny_orm()])];
             let (parsed_struct, _, mut operations, soft_deletion) =
-                Parser::parse_struct_macro_arguments(&struct_name, &attrs);
+                Parser::parse_struct_macro_arguments(&struct_name, &Visibility::Inherited, &attrs);
             operations.sort();
             assert_eq!(parsed_struct.name.to_string(), "NewMyStruct".to_string());
             assert_eq!(
@@ -573,7 +581,7 @@ mod tests {
             let struct_name = format_ident!("UpdateMyStruct");
             let attrs = vec![parse_quote!(#[tiny_orm()])];
             let (parsed_struct, _, mut operations, soft_deletion) =
-                Parser::parse_struct_macro_arguments(&struct_name, &attrs);
+                Parser::parse_struct_macro_arguments(&struct_name, &Visibility::Inherited, &attrs);
             operations.sort();
             assert_eq!(parsed_struct.name.to_string(), "UpdateMyStruct".to_string());
             assert_eq!(
@@ -593,7 +601,7 @@ mod tests {
                 parse_quote!(#[tiny_orm(table_name = "   custom ", return_object = "   Operation  ", only = "  create   ,  delete")]),
             ];
             let (parsed_struct, _, mut operations, soft_deletion) =
-                Parser::parse_struct_macro_arguments(&struct_name, &attrs);
+                Parser::parse_struct_macro_arguments(&struct_name, &Visibility::Inherited, &attrs);
             operations.sort();
             assert_eq!(parsed_struct.name.to_string(), "NewMyStruct".to_string());
             assert_eq!(parsed_struct.table_name.0.to_string(), "custom".to_string());
@@ -610,7 +618,7 @@ mod tests {
                 parse_quote!(#[tiny_orm(table_name = "   custom ", return_object = "   Operation  ", only = "  create   ,  delete", soft_deletion)]),
             ];
             let (parsed_struct, db_type, mut operations, soft_deletion) =
-                Parser::parse_struct_macro_arguments(&struct_name, &attrs);
+                Parser::parse_struct_macro_arguments(&struct_name, &Visibility::Inherited, &attrs);
             operations.sort();
             assert_eq!(parsed_struct.name.to_string(), "UpdateMyStruct".to_string());
             assert_eq!(parsed_struct.table_name.0.to_string(), "custom".to_string());
@@ -625,7 +633,7 @@ mod tests {
             let struct_name = format_ident!("MyStruct");
             let attrs = vec![parse_quote!(#[tiny_orm(all, table_name = "custom")])];
             let (parsed_struct, _, mut operations, soft_deletion) =
-                Parser::parse_struct_macro_arguments(&struct_name, &attrs);
+                Parser::parse_struct_macro_arguments(&struct_name, &Visibility::Inherited, &attrs);
             operations.sort();
             assert_eq!(parsed_struct.name.to_string(), "MyStruct".to_string());
             assert_eq!(parsed_struct.table_name.0.to_string(), "custom".to_string());
@@ -638,7 +646,7 @@ mod tests {
             let struct_name = format_ident!("NewMyStruct");
             let attrs = vec![parse_quote!(#[tiny_orm(all, soft_deletion)])];
             let (parsed_struct, _, mut operations, soft_deletion) =
-                Parser::parse_struct_macro_arguments(&struct_name, &attrs);
+                Parser::parse_struct_macro_arguments(&struct_name, &Visibility::Inherited, &attrs);
             operations.sort();
             assert_eq!(parsed_struct.struct_type, StructType::Create);
             assert_eq!(operations, Operation::all());
@@ -650,7 +658,7 @@ mod tests {
             let struct_name = format_ident!("UpdateMyStruct");
             let attrs = vec![parse_quote!(#[tiny_orm(all)])];
             let (parsed_struct, _, mut operations, soft_deletion) =
-                Parser::parse_struct_macro_arguments(&struct_name, &attrs);
+                Parser::parse_struct_macro_arguments(&struct_name, &Visibility::Inherited, &attrs);
             operations.sort();
             assert_eq!(parsed_struct.struct_type, StructType::Update);
             assert_eq!(operations, Operation::all());
@@ -662,7 +670,8 @@ mod tests {
         fn test_cannot_pass_all_with_only() {
             let struct_name = format_ident!("MyStruct");
             let attrs = vec![parse_quote!(#[tiny_orm(all, only = "create")])];
-            let _ = Parser::parse_struct_macro_arguments(&struct_name, &attrs);
+            let _ =
+                Parser::parse_struct_macro_arguments(&struct_name, &Visibility::Inherited, &attrs);
         }
 
         #[test]
@@ -670,7 +679,7 @@ mod tests {
             let struct_name = format_ident!("MyStruct");
             let attrs = vec![parse_quote!(#[tiny_orm(all, exclude = "delete")])];
             let (parsed_struct, _, mut operations, soft_deletion) =
-                Parser::parse_struct_macro_arguments(&struct_name, &attrs);
+                Parser::parse_struct_macro_arguments(&struct_name, &Visibility::Inherited, &attrs);
             operations.sort();
             assert_eq!(parsed_struct.struct_type, StructType::Generic);
             assert_eq!(
@@ -687,7 +696,7 @@ mod tests {
     }
 
     mod parse_fields_macro_arguments {
-        use syn::{parse_quote, DeriveInput};
+        use syn::{parse_quote, DeriveInput, Visibility};
 
         use crate::attr::{Column, Parser};
 
@@ -703,16 +712,24 @@ mod tests {
             };
 
             let (primary_key, field_names) = Parser::parse_fields_macro_arguments(input.data);
-            let mut expected_pk = Column::new("id", parse_quote!(i64));
+            let mut expected_pk = Column::new("id", Visibility::Inherited, parse_quote!(i64));
             expected_pk.set_primary_key();
             assert_eq!(primary_key, Some(expected_pk.clone()));
             assert_eq!(
                 field_names,
                 vec![
                     expected_pk,
-                    Column::new("created_at", parse_quote!(DateTime<Utc>)),
-                    Column::new("updated_at", parse_quote!(DateTime<Utc>)),
-                    Column::new("last_name", parse_quote!(String))
+                    Column::new(
+                        "created_at",
+                        Visibility::Inherited,
+                        parse_quote!(DateTime<Utc>)
+                    ),
+                    Column::new(
+                        "updated_at",
+                        Visibility::Inherited,
+                        parse_quote!(DateTime<Utc>)
+                    ),
+                    Column::new("last_name", Visibility::Inherited, parse_quote!(String))
                 ]
             );
         }
@@ -729,7 +746,11 @@ mod tests {
             assert_eq!(primary_key, None);
             assert_eq!(
                 field_names,
-                vec![Column::new("last_name", parse_quote!(String))]
+                vec![Column::new(
+                    "last_name",
+                    Visibility::Inherited,
+                    parse_quote!(String)
+                )]
             );
         }
 
@@ -746,16 +767,25 @@ mod tests {
             };
 
             let (primary_key, field_names) = Parser::parse_fields_macro_arguments(input.data);
-            let mut expected_pk = Column::new("custom_key", parse_quote!(u32));
+            let mut expected_pk =
+                Column::new("custom_key", Visibility::Inherited, parse_quote!(u32));
             expected_pk.set_primary_key();
             assert_eq!(primary_key, Some(expected_pk.clone()));
             assert_eq!(
                 field_names,
                 vec![
                     expected_pk,
-                    Column::new("inserted_at", parse_quote!(DateTime<Utc>)),
-                    Column::new("something_at", parse_quote!(DateTime<Utc>)),
-                    Column::new("last_name", parse_quote!(String))
+                    Column::new(
+                        "inserted_at",
+                        Visibility::Inherited,
+                        parse_quote!(DateTime<Utc>)
+                    ),
+                    Column::new(
+                        "something_at",
+                        Visibility::Inherited,
+                        parse_quote!(DateTime<Utc>)
+                    ),
+                    Column::new("last_name", Visibility::Inherited, parse_quote!(String))
                 ]
             );
         }
@@ -773,7 +803,7 @@ mod tests {
             };
 
             let (primary_key, _) = Parser::parse_fields_macro_arguments(input.data);
-            let mut pk = Column::new("custom_key", parse_quote!(u32));
+            let mut pk = Column::new("custom_key", Visibility::Inherited, parse_quote!(u32));
             pk.set_primary_key();
             pk.set_auto_increment();
             assert_eq!(primary_key, Some(pk));
@@ -795,19 +825,35 @@ mod tests {
             };
 
             let (primary_key, field_names) = Parser::parse_fields_macro_arguments(input.data);
-            let mut expect_pk = Column::new("custom_key", parse_quote!(u32));
+            let mut expect_pk = Column::new("custom_key", Visibility::Inherited, parse_quote!(u32));
             expect_pk.set_primary_key();
             assert_eq!(primary_key, Some(expect_pk.clone()));
             assert_eq!(
                 field_names,
                 vec![
                     expect_pk,
-                    Column::new("inserted_at", parse_quote!(DateTime<Utc>)),
-                    Column::new("something_at", parse_quote!(DateTime<Utc>)),
-                    Column::new("id", parse_quote!(u32)),
-                    Column::new("created_at", parse_quote!(DateTime<Utc>)),
-                    Column::new("updated_at", parse_quote!(DateTime<Utc>)),
-                    Column::new("last_name", parse_quote!(String))
+                    Column::new(
+                        "inserted_at",
+                        Visibility::Inherited,
+                        parse_quote!(DateTime<Utc>)
+                    ),
+                    Column::new(
+                        "something_at",
+                        Visibility::Inherited,
+                        parse_quote!(DateTime<Utc>)
+                    ),
+                    Column::new("id", Visibility::Inherited, parse_quote!(u32)),
+                    Column::new(
+                        "created_at",
+                        Visibility::Inherited,
+                        parse_quote!(DateTime<Utc>)
+                    ),
+                    Column::new(
+                        "updated_at",
+                        Visibility::Inherited,
+                        parse_quote!(DateTime<Utc>)
+                    ),
+                    Column::new("last_name", Visibility::Inherited, parse_quote!(String))
                 ]
             );
         }
@@ -828,7 +874,7 @@ mod tests {
             };
 
             let (primary_key, _) = Parser::parse_fields_macro_arguments(input.data);
-            let mut pk = Column::new("custom_key", parse_quote!(u32));
+            let mut pk = Column::new("custom_key", Visibility::Inherited, parse_quote!(u32));
             pk.set_primary_key();
             pk.set_auto_increment();
             assert_eq!(primary_key, Some(pk));
@@ -837,7 +883,7 @@ mod tests {
 
     mod parse {
         use quote::{format_ident, ToTokens};
-        use syn::{parse_quote, DeriveInput};
+        use syn::{parse_quote, DeriveInput, Visibility};
 
         use crate::{
             attr::{Column, Operation, ParsedStruct},
@@ -858,8 +904,13 @@ mod tests {
             };
 
             let result = Attr::parse(input);
-            let parsed_struct = ParsedStruct::new(&format_ident!("Contact"), None, None);
-            let mut primary_key = Column::new("id", parse_quote!(i64));
+            let parsed_struct = ParsedStruct::new(
+                &format_ident!("Contact"),
+                &Visibility::Inherited,
+                None,
+                None,
+            );
+            let mut primary_key = Column::new("id", Visibility::Inherited, parse_quote!(i64));
             primary_key.set_primary_key();
             assert_eq!(
                 result,
@@ -868,9 +919,17 @@ mod tests {
                     primary_key: Some(primary_key.clone()),
                     columns: vec![
                         primary_key,
-                        Column::new("created_at", parse_quote!(DateTime<Utc>)),
-                        Column::new("updated_at", parse_quote!(DateTime<Utc>)),
-                        Column::new("last_name", parse_quote!(String))
+                        Column::new(
+                            "created_at",
+                            Visibility::Inherited,
+                            parse_quote!(DateTime<Utc>)
+                        ),
+                        Column::new(
+                            "updated_at",
+                            Visibility::Inherited,
+                            parse_quote!(DateTime<Utc>)
+                        ),
+                        Column::new("last_name", Visibility::Inherited, parse_quote!(String))
                     ],
                     operations: vec![Operation::Get, Operation::List, Operation::Delete],
                     soft_deletion: false,
@@ -891,12 +950,14 @@ mod tests {
                     last_name: String,
                 }
             };
-            let mut primary_key = Column::new("custom_pk", parse_quote!(i64));
+            let mut primary_key =
+                Column::new("custom_pk", Visibility::Inherited, parse_quote!(i64));
             primary_key.set_primary_key();
 
             let result = Attr::parse(input);
             let parsed_struct = ParsedStruct::new(
                 &format_ident!("Contact"),
+                &Visibility::Inherited,
                 Some("specific_table".to_token_stream()),
                 Some(format_ident!("AnotherObject")),
             );
@@ -907,9 +968,17 @@ mod tests {
                     primary_key: Some(primary_key.clone()),
                     columns: vec![
                         primary_key,
-                        Column::new("custom_created_at", parse_quote!(DateTime<Utc>)),
-                        Column::new("custom_updated_at", parse_quote!(DateTime<Utc>)),
-                        Column::new("last_name", parse_quote!(String))
+                        Column::new(
+                            "custom_created_at",
+                            Visibility::Inherited,
+                            parse_quote!(DateTime<Utc>)
+                        ),
+                        Column::new(
+                            "custom_updated_at",
+                            Visibility::Inherited,
+                            parse_quote!(DateTime<Utc>)
+                        ),
+                        Column::new("last_name", Visibility::Inherited, parse_quote!(String))
                     ],
 
                     operations: vec![Operation::Create],
