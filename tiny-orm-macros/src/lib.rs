@@ -16,7 +16,7 @@ pub fn derive_tiny_orm(input: TokenStream) -> TokenStream {
 
     let expanded = generate_impl(&attr);
 
-    #[cfg(all(test, feature = "debug-compiled"))]
+    #[cfg(any(test, feature = "debug-compiled"))]
     println!("Generated code:\n{}", expanded);
 
     TokenStream::from(expanded)
