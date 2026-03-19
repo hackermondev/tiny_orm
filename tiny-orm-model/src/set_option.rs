@@ -302,10 +302,6 @@ where
     T: Decode<'r, DB>,
 {
     fn decode(value: <DB as Database>::ValueRef<'r>) -> Result<Self, BoxDynError> {
-        if value.is_null() {
-            return Ok(SetOption::NotSet);
-        }
-
         Ok(SetOption::Set(T::decode(value)?))
     }
 }
@@ -505,9 +501,6 @@ where
     T: sqlx::Decode<'r, Sqlite>,
 {
     fn decode(value: SqliteValueRef<'r>) -> Result<Self, BoxDynError> {
-        if value.is_null() {
-            return Ok(SetOption::NotSet);
-        }
         let decoded = <T as sqlx::Decode<'r, Sqlite>>::decode(value)?;
         Ok(SetOption::Set(decoded))
     }
@@ -518,9 +511,6 @@ where
     T: sqlx::Decode<'r, Postgres>,
 {
     fn decode(value: PgValueRef<'r>) -> Result<Self, BoxDynError> {
-        if value.is_null() {
-            return Ok(SetOption::NotSet);
-        }
         let decoded = <T as sqlx::Decode<'r, Postgres>>::decode(value)?;
         Ok(SetOption::Set(decoded))
     }
@@ -531,9 +521,6 @@ where
     T: sqlx::Decode<'r, MySql>,
 {
     fn decode(value: MySqlValueRef<'r>) -> Result<Self, BoxDynError> {
-        if value.is_null() {
-            return Ok(SetOption::NotSet);
-        }
         let decoded = <T as sqlx::Decode<'r, MySql>>::decode(value)?;
         Ok(SetOption::Set(decoded))
     }
