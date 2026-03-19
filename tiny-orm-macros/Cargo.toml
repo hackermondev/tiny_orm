@@ -24,6 +24,7 @@ default = []
 sqlite = ["sqlx/sqlite"]
 postgres = ["sqlx/postgres"]
 mysql = ["sqlx/mysql"]
+debug-compiled = []
 
 [dev-dependencies]
 sqlx = { version = "0.8.3", features = ["runtime-tokio-native-tls", "sqlite", "chrono", "uuid"] }
