@@ -670,9 +670,6 @@ pub fn upsert_fn(attr: &Attr) -> proc_macro2::TokenStream {
             let mut fields_str = Vec::new();
             #(#field_str_quote)*
 
-            let mut fields_values = Vec::new();
-
-
             let mut qb = ::sqlx::QueryBuilder::new("INSERT INTO ");
             qb.push(#table_name);
             qb.push(" (");
