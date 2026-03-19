@@ -22,7 +22,7 @@ impl StructType {
         match self {
             StructType::Create => vec![Operation::Create, Operation::CreateBulk],
             StructType::Update => vec![Operation::Update],
-            StructType::Generic => vec![Operation::Get, Operation::List, Operation::Delete],
+            StructType::Generic => vec![Operation::Get, Operation::List, Operation::Delete, Operation::Upsert],
         }
     }
     pub fn remove_prefix(&self, input: &str) -> String {
@@ -95,6 +95,7 @@ pub enum Operation {
     Create,
     CreateBulk,
     Update,
+    Upsert,
     Delete,
 }
 
@@ -107,6 +108,7 @@ impl Operation {
             Operation::Create,
             Operation::CreateBulk,
             Operation::Update,
+            Operation::Upsert,
             Operation::Delete,
         ]
     }
@@ -123,6 +125,7 @@ impl FromStr for Operation {
             "create" => Ok(Operation::Create),
             "create_bulk" => Ok(Operation::CreateBulk),
             "update" => Ok(Operation::Update),
+            "upsert" => Ok(Operation::Upsert),
             "delete" => Ok(Operation::Delete),
             _ => Err(()),
         }

@@ -67,6 +67,12 @@ fn generate_impl(attr: &attr::Attr) -> proc_macro2::TokenStream {
         quote! {}
     };
 
+    let upsert_impl = if attr.operations.contains(&Operation::Upsert) {
+        quotes::upsert_fn(attr)
+    } else {
+        quote! {}
+    };
+
     let delete_impl = if attr.operations.contains(&Operation::Delete) {
         quotes::delete_fn(attr)
     } else {
@@ -83,6 +89,7 @@ fn generate_impl(attr: &attr::Attr) -> proc_macro2::TokenStream {
             #create_impl
             #create_bulk_impl
             #update_impl
+            #upsert_impl
             #delete_impl
         }
     }

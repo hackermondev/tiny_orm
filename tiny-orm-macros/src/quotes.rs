@@ -583,6 +583,120 @@ pub fn update_fn(attr: &Attr) -> proc_macro2::TokenStream {
     }
 }
 
+pub fn upsert_fn(attr: &Attr) -> proc_macro2::TokenStream {
+    let db_type = &attr.db_type;
+    let db_type_ident = db_type.clone().to_ident();
+    let table_name = &attr.parsed_struct.table_name.0;
+
+    let return_type = ReturnType::None;
+    let function_output = return_type.clone().function_output();
+    let query_builder_execution = return_type.clone().query_builder_execution(&attr.db_type);
+    let returning_statement = return_type.returning_statement(&attr.db_type);
+
+    let primary_column = attr.primary_key.as_ref().expect("must have primary column");
+    let primary_column_name = primary_column.safe_name();
+
+    let mut field_str_quote = Vec::new();
+    let mut field_values_quote = Vec::new();
+    let mut fields_update_quotes = Vec::new();
+
+    for column in attr.columns.iter() {
+        if column.auto_increment {
+            continue;
+        }
+        let str_quote = if column.use_set_options() {
+            let column_ident = &column.ident;
+            let column_name = column.safe_name();
+            quote! {
+                if self.#column_ident.is_set() {
+                    fields_str.push(#column_name);
+                }
+            }
+        } else {
+            let column_name = column.safe_name();
+            quote! {
+                fields_str.push(#column_name);
+            }
+        };
+        field_str_quote.push(str_quote);
+
+        let value_quote = if column.use_set_options() {
+            let column_ident = &column.ident;
+            quote! {
+                if let SetOption::Set(v) = &self.#column_ident {
+                    separated.push_bind(v);
+                }
+            }
+        } else {
+            let column_ident = &column.ident;
+            quote! {
+                separated.push_bind(&self.#column_ident);
+            }
+        };
+        field_values_quote.push(value_quote);
+
+        if !column.primary_key {
+            let column_ident = &column.ident;
+            let column_name = column.safe_name();
+
+            let quote = quote! {
+                if !first {
+                    qb.push(", ");
+                }
+                qb.push(#column_name);
+                qb.push(" = ");
+                qb.push_bind(&self.#column_ident);
+                first = false;
+            };
+
+            let str_quote = if column.use_set_options() {
+                quote! {
+                    if self.#column_ident.is_set() {
+                        #quote
+                    }
+                }
+            } else {
+                quote
+            };
+            fields_update_quotes.push(str_quote);
+        }
+    }
+
+    quote! {
+        pub async fn upsert<'e, E>(&self, db: E) -> #function_output
+        where
+            E: ::sqlx::#db_type_ident<'e>
+        {
+            let mut fields_str = Vec::new();
+            #(#field_str_quote)*
+
+            let mut fields_values = Vec::new();
+
+
+            let mut qb = ::sqlx::QueryBuilder::new("INSERT INTO ");
+            qb.push(#table_name);
+            qb.push(" (");
+            qb.push(fields_str.join(", "));
+            qb.push(") VALUES (");
+
+            let mut separated = qb.separated(", ");
+            #(#field_values_quote)*
+            separated.push_unseparated(")");
+
+            qb.push(" ON CONFLICT (");
+            qb.push(#primary_column_name);
+            qb.push(") DO UPDATE SET ");
+
+            let mut first = true;
+            #(#fields_update_quotes)*
+
+            #returning_statement
+
+            #query_builder_execution
+        }
+    }
+}
+
 pub fn delete_fn(attr: &Attr) -> proc_macro2::TokenStream {
     let db_type_ident = attr.db_type.to_ident();
     let return_type = ReturnType::None;
@@ -1111,7 +1225,7 @@ mod tests {
 
             assert_eq!(generated, expected);
         }
-
+        
         #[test]
         fn test_generate_delete_method() {
             let db_ident = db_ident();
