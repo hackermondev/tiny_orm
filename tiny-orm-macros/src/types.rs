@@ -193,6 +193,13 @@ impl Column {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtraQueryExpression {
+    pub struct_field_name: Ident,
+    pub struct_field_type: Ident,
+    pub sql_expression: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct TableName(pub TokenStream);
 

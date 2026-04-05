@@ -4,7 +4,7 @@ use syn::Ident;
 use crate::{
     attr::Attr,
     database::{self, DbType},
-    types::{Column, PrimaryKey, ReturnObject},
+    types::{Column, ExtraQueryExpression, PrimaryKey, ReturnObject},
 };
 
 #[derive(Debug, Clone)]
@@ -164,11 +164,12 @@ pub fn get_by_id_fn(attr: &Attr) -> proc_macro2::TokenStream {
 }
 
 pub fn query_model_struct(attr: &Attr) -> proc_macro2::TokenStream {
+    let table_name = &attr.parsed_struct.table_name.0;
     let struct_visibility = &attr.parsed_struct.visibility;
     let struct_name = &attr.parsed_struct.name;
 
     let query_struct_name = Ident::new(&format!("Query{struct_name}"), struct_name.span());
-    let columns = attr
+    let mut columns = attr
         .columns
         .iter()
         .map(|column| {
@@ -185,9 +186,17 @@ pub fn query_model_struct(attr: &Attr) -> proc_macro2::TokenStream {
         })
         .collect::<Vec<_>>();
 
+    for ExtraQueryExpression { struct_field_name, struct_field_type, .. } in attr.extra_query_expressions.iter() {
+        let query_operator_type = quote! { ::tiny_orm::ColumnOperator<#struct_field_type> };
+        columns.push(quote! { #struct_visibility #struct_field_name : Vec<#query_operator_type> });
+    }
     let query_impl = query_fn(attr);
 
+    let comment = format!("/// Automatically generated struct for querying columns from {table_name}. Generated from {struct_name}");
+    let comment: proc_macro2::TokenStream = comment.parse().unwrap();
+
     quote! {
+        #comment
         #[derive(Debug, Default)]
         #struct_visibility struct #query_struct_name {
             #(#columns),*
@@ -264,6 +273,27 @@ pub fn query_fn(attr: &Attr) -> proc_macro2::TokenStream {
             if !self.#column_ident.is_empty() {
                 let column_name = #column_name;
                 for operator in &self.#column_ident {
+                    if i > 0 {
+                        qb.push(" AND ");
+                    }
+
+                    #match_operator
+                    i += 1;
+                }
+            }
+        };
+        selector_statement.push(selector);
+    }
+
+    for ExtraQueryExpression {
+        struct_field_name, sql_expression, ..
+    } in attr.extra_query_expressions.iter()
+    {
+        let match_operator = &match_column_operator;
+        let selector = quote! {
+            if !self.#struct_field_name.is_empty() {
+                let column_name = #sql_expression;
+                for operator in &self.#struct_field_name {
                     if i > 0 {
                         qb.push(" AND ");
                     }
@@ -844,6 +874,13 @@ mod tests {
                 operations: Operation::all(),
                 soft_deletion,
                 db_type: DbType::Postgres,
+                extra_query_expressions: vec![
+                    ExtraQueryExpression {
+                        struct_field_name: format_ident!("two"),
+                        struct_field_type: format_ident!("i32"),
+                        sql_expression: format!("(1+1)")
+                    }
+                ],
             }
         }
 
@@ -1222,7 +1259,7 @@ mod tests {
 
             assert_eq!(generated, expected);
         }
-        
+
         #[test]
         fn test_generate_delete_method() {
             let db_ident = db_ident();
@@ -1359,6 +1396,7 @@ mod tests {
                 operations: vec![Operation::Create],
                 soft_deletion: false,
                 db_type: DbType::Postgres,
+                extra_query_expressions: vec![],
             };
 
             let generated = clean_tokens(create_fn(&input));
@@ -1444,6 +1482,7 @@ mod tests {
                 operations: vec![Operation::Create],
                 soft_deletion: false,
                 db_type: DbType::Postgres,
+                extra_query_expressions: vec![],
             };
 
             let generated = clean_tokens(create_fn(&input));
@@ -1522,6 +1561,7 @@ mod tests {
                 operations: vec![Operation::Create],
                 soft_deletion: false,
                 db_type: DbType::Postgres,
+                extra_query_expressions: vec![],
             };
 
             let generated = clean_tokens(create_fn(&input));
@@ -1600,6 +1640,7 @@ mod tests {
                 operations: vec![Operation::Create],
                 soft_deletion: false,
                 db_type: DbType::Postgres,
+                extra_query_expressions: vec![],
             };
 
             let generated = clean_tokens(create_fn(&input));
@@ -1672,6 +1713,7 @@ mod tests {
                 operations: vec![Operation::Update],
                 soft_deletion: false,
                 db_type: DbType::Postgres,
+                extra_query_expressions: vec![],
             };
 
             let generated = clean_tokens(update_fn(&input));
@@ -1791,6 +1833,7 @@ mod tests {
                 operations: vec![Operation::Update],
                 soft_deletion: false,
                 db_type: DbType::Postgres,
+                extra_query_expressions: vec![],
             };
 
             let generated = clean_tokens(update_fn(&input));
