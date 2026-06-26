@@ -26,7 +26,7 @@ members = ["tiny-orm-model", "tiny-orm-macros"]
 [dependencies]
 tiny-orm-macros = { version = "0.5.1", path = "./tiny-orm-macros", features = [] }
 tiny-orm-model = { version = "0.5.1", path = "./tiny-orm-model", features = [] }
-sqlx = { version = ">=0.7, <1.0", default-features = false }
+sqlx = { version = ">=0.9", default-features = false }
 
 [features]
 default = ["set-option"]
@@ -42,6 +42,6 @@ debug-compiled = ["tiny-orm-macros/debug-compiled"]
 features = ["sqlite"]
 
 [dev-dependencies]
-sqlx = { version = "0.8.3", features = ["runtime-tokio-native-tls", "sqlite", "chrono", "uuid", "any"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "sqlite", "chrono", "uuid", "any"] }
 tokio = { version = "1.41.0", features = ["rt", "macros"]}
 uuid = {version = "1.11.0", features = ["v4"]}

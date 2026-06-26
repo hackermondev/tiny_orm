@@ -382,7 +382,7 @@ impl<'q, T, DB: Database> Encode<'q, DB> for SetOption<T>
 where
     T: Encode<'q, DB>,
 {
-    fn encode(self, buf: &mut <DB as Database>::ArgumentBuffer<'q>) -> Result<IsNull, BoxDynError> {
+    fn encode(self, buf: &mut <DB as Database>::ArgumentBuffer) -> Result<IsNull, BoxDynError> {
         match self {
             SetOption::Set(value) => value.encode(buf),
             SetOption::NotSet => Ok(IsNull::Yes),
@@ -391,7 +391,7 @@ where
 
     fn encode_by_ref(
         &self,
-        buf: &mut <DB as Database>::ArgumentBuffer<'q>,
+        buf: &mut <DB as Database>::ArgumentBuffer,
     ) -> Result<IsNull, BoxDynError> {
         match self {
             SetOption::Set(value) => value.encode_by_ref(buf),
