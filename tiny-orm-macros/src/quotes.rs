@@ -191,12 +191,8 @@ pub fn query_model_struct(attr: &Attr) -> proc_macro2::TokenStream {
         columns.push(quote! { #struct_visibility #struct_field_name : Vec<#query_operator_type> });
     }
     let query_impl = query_fn(attr);
-
-    let comment = format!("/// Automatically generated struct for querying columns from {table_name}. Generated from {struct_name}");
-    let comment: proc_macro2::TokenStream = comment.parse().unwrap();
-
+    
     quote! {
-        #comment
         #[derive(Debug, Default)]
         #struct_visibility struct #query_struct_name {
             #(#columns),*
