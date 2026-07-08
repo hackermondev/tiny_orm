@@ -614,7 +614,7 @@ pub fn upsert_fn(attr: &Attr) -> proc_macro2::TokenStream {
     let db_type_ident = db_type.clone().to_ident();
     let table_name = &attr.parsed_struct.table_name.0;
 
-    let return_type = ReturnType::None;
+    let return_type = ReturnType::EntireRow(attr.parsed_struct.return_object.clone());
     let function_output = return_type.clone().function_output();
     let query_builder_execution = return_type.clone().query_builder_execution(&attr.db_type);
     let returning_statement = return_type.returning_statement(&attr.db_type);
