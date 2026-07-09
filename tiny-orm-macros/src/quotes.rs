@@ -717,6 +717,35 @@ pub fn upsert_fn(attr: &Attr) -> proc_macro2::TokenStream {
 
             #query_builder_execution
         }
+
+        pub async fn upsert_on_constraint<'e, E>(&self, db: E, constraint: &str) -> #function_output
+        where
+            E: ::sqlx::#db_type_ident<'e>
+        {
+            let mut fields_str = Vec::new();
+            #(#field_str_quote)*
+
+            let mut qb = ::sqlx::QueryBuilder::new("INSERT INTO ");
+            qb.push(#table_name);
+            qb.push(" (");
+            qb.push(fields_str.join(", "));
+            qb.push(") VALUES (");
+
+            let mut separated = qb.separated(", ");
+            #(#field_values_quote)*
+            separated.push_unseparated(")");
+
+            qb.push(" ON CONFLICT (");
+            qb.push(constraint);
+            qb.push(") DO UPDATE SET ");
+
+            let mut first = true;
+            #(#fields_update_quotes)*
+
+            #returning_statement
+
+            #query_builder_execution
+        }
     }
 }
 
